@@ -8,10 +8,10 @@ project(
     'cpp_std=c++20',
   ])
 
-CROW_ARGS=['-DSSL_ON','-DBMCWEB_INSECURE_DISABLE_AUTHX','-DBOOST_ASIO_HAS_THREADS']
+CROW_ARGS=['-DSSL_ON','-DBMCWEB_INSECURE_DISABLE_AUTHX','-DBOOST_URL_NO_SOURCE_LOCATION']
 #CHAI_ARGS=[]
 #openssl_dep = dependency('openssl', version: '>=1.1.1')
-boost_dep = dependency('boost',modules: ['coroutine','url'])
+boost_dep = dependency('boost',modules: ['coroutine'])
 json_dep = dependency('nlohmann_json')
 
 #boost_lib_path = boost_dep.get_pkgconfig_variable('libdir')
@@ -19,8 +19,8 @@ boost_lib_path='/opt/homebrew/Cellar/boost/1.82.0/lib'
 core_includes = include_directories(['.','./include'])
 executable(
   'crow_core',
-  'crow_core.cpp',
+  ['crow_core.cpp','boost_url.cpp'],
   include_directories: core_includes,
   dependencies:[boost_dep,json_dep],
   install: true,
-  install_dir: get_option('bindir'),cpp_args : CROW_ARGS,link_args: ['-L' + boost_lib_path, '-lboost_coroutine','-lboost_url'])
+  install_dir: get_option('bindir'),cpp_args : CROW_ARGS,link_args: ['-L' + boost_lib_path, '-lboost_coroutine'])
