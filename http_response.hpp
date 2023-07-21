@@ -19,6 +19,34 @@ namespace crow {
 
 template <typename Adaptor, typename Handler> class Connection;
 
+template <typename Ret> struct SafeVisit {
+  Ret operator()(auto callable, const auto &res) const {
+
+    try {
+      return std::visit(std::move(callable), res);
+    } catch (std::bad_variant_access &ex) {
+    }
+    return Ret{};
+  }
+};
+template <> struct SafeVisit<void> {
+  void operator()(auto callable, auto &res) const {
+
+    try {
+      std::visit(std::move(callable), res);
+    } catch (std::bad_variant_access &ex) {
+    }
+  }
+};
+struct SafeMove {
+  void operator()(auto callable) const {
+
+    try {
+      callable();
+    } catch (std::bad_variant_access & /*unused*/) {
+    }
+  }
+};
 struct Response {
   template <typename Adaptor, typename Handler> friend class crow::Connection;
   using string_body_response_type =
@@ -35,33 +63,14 @@ struct Response {
   std::optional<response_type> genericResponse;
 
   nlohmann::json jsonValue;
-  template <typename Ret> struct safeVisit {
-    Ret operator()(auto callable, const response_type &res) const {
-
-      try {
-        return std::visit(std::move(callable), res);
-      } catch (std::bad_variant_access &ex) {
-      }
-      return Ret{};
-    }
-  };
-  template <> struct safeVisit<void> {
-    void operator()(auto callable, response_type &res) const {
-
-      try {
-        std::visit(std::move(callable), res);
-      } catch (std::bad_variant_access &ex) {
-      }
-    }
-  };
 
   void addHeader(const std::string_view key, const std::string_view value) {
-    safeVisit<void>()([key, value](auto &&res) { res.set(key, value); },
+    SafeVisit<void>()([key, value](auto &&res) { res.set(key, value); },
                       genericResponse.value());
   }
 
   void addHeader(boost::beast::http::field key, std::string_view value) {
-    safeVisit<void>()([key, value](auto &&res) { res.set(key, value); },
+    SafeVisit<void>()([key, value](auto &&res) { res.set(key, value); },
                       genericResponse.value());
   }
 
@@ -92,7 +101,8 @@ struct Response {
     if (this == &r) {
       return *this;
     }
-    genericResponse = std::move(r.genericResponse);
+    SafeMove()(
+        [this, &r]() { genericResponse = std::move(r.genericResponse); });
     r.genericResponse.emplace(response_type{});
     jsonValue = std::move(r.jsonValue);
 
@@ -114,27 +124,27 @@ struct Response {
   }
 
   void result(unsigned v) {
-    safeVisit<void>()([v](auto &&res) { res.result(v); },
+    SafeVisit<void>()([v](auto &&res) { res.result(v); },
                       genericResponse.value());
   }
 
   void result(boost::beast::http::status v) {
-    safeVisit<void>()([v](auto &&res) { res.result(v); },
+    SafeVisit<void>()([v](auto &&res) { res.result(v); },
                       genericResponse.value());
   }
 
   boost::beast::http::status result() const {
-    return safeVisit<boost::beast::http::status>()(
+    return SafeVisit<boost::beast::http::status>()(
         [](auto &&res) { return res.result(); }, genericResponse.value());
   }
 
   unsigned resultInt() const {
-    return safeVisit<unsigned>()([](auto &&res) { return res.result_int(); },
+    return SafeVisit<unsigned>()([](auto &&res) { return res.result_int(); },
                                  genericResponse.value());
   }
 
   std::string_view reason() const {
-    return safeVisit<std::string_view>()(
+    return SafeVisit<std::string_view>()(
         [](auto &&res) { return res.reason(); }, genericResponse.value());
   }
 
@@ -154,22 +164,22 @@ struct Response {
   }
 
   std::string_view getHeaderValue(std::string_view key) const {
-    return safeVisit<std::string_view>()(
+    return SafeVisit<std::string_view>()(
         [key](auto &&res) { return res.base()[key]; }, genericResponse.value());
   }
 
   void keepAlive(bool k) {
-    return safeVisit<void>()([k](auto &&res) { res.keep_alive(k); },
+    return SafeVisit<void>()([k](auto &&res) { res.keep_alive(k); },
                              genericResponse.value());
   }
 
   bool keepAlive() const {
-    return safeVisit<bool>()([](auto &&res) { return res.keep_alive(); },
+    return SafeVisit<bool>()([](auto &&res) { return res.keep_alive(); },
                              genericResponse.value());
   }
 
   void preparePayload() {
-    return safeVisit<void>()([](auto &&res) { return res.prepare_payload(); },
+    return SafeVisit<void>()([](auto &&res) { return res.prepare_payload(); },
                              genericResponse.value());
   }
 
