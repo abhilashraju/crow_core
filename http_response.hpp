@@ -149,18 +149,30 @@ struct Response {
   }
 
   bool isCompleted() const noexcept { return completed; }
+  template <typename Alternative> void updateAlternative() {
+    if (!std::holds_alternative<Alternative>(genericResponse.value())) {
+      Alternative altbody{};
+      std::visit([&altbody](auto &&other) { altbody.base() = other.base(); },
+                 genericResponse.value());
 
-  std::string &body() {
-    if (!std::holds_alternative<string_body_response_type>(
-            genericResponse.value())) {
-      string_body_response_type stringbody{};
-      std::visit(
-          [&stringbody](auto &&other) { stringbody.base() = other.base(); },
-          genericResponse.value());
-
-      genericResponse.emplace(stringbody);
+      genericResponse.emplace(std::move(altbody));
     }
+  }
+  std::string &body() {
+    updateAlternative<string_body_response_type>();
     return std::get<string_body_response_type>(*genericResponse).body();
+  }
+
+  bool openFile(const std::filesystem::path &path) {
+    boost::beast::http::file_body::value_type file;
+    boost::beast::error_code ec;
+    file.open(path.c_str(), boost::beast::file_mode::read, ec);
+    if (ec) {
+      return false;
+    }
+    updateAlternative<file_body_response_type>();
+    std::get<file_body_response_type>(*genericResponse).body() =
+        std::move(file);
   }
 
   std::string_view getHeaderValue(std::string_view key) const {
