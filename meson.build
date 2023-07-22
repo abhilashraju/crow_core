@@ -8,7 +8,7 @@ project(
     'cpp_std=c++20',
   ])
 
-CROW_ARGS=['-DSSL_ON','-DBMCWEB_INSECURE_DISABLE_AUTHX','-DBOOST_URL_NO_SOURCE_LOCATION']
+CROW_ARGS=['-DSSL_ON','-DBMCWEB_INSECURE_DISABLE_AUTHX','-DBOOST_URL_NO_SOURCE_LOCATION','-DBMCWEB_INSECURE_DISABLE_AUTHX']
 #CHAI_ARGS=[]
 #openssl_dep = dependency('openssl', version: '>=1.1.1')
 boost_dep = dependency('boost',modules: ['coroutine'])
