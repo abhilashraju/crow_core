@@ -13,10 +13,15 @@ CROW_ARGS=['-DSSL_ON','-DBMCWEB_INSECURE_DISABLE_AUTHX','-DBOOST_URL_NO_SOURCE_L
 #openssl_dep = dependency('openssl', version: '>=1.1.1')
 boost_dep = dependency('boost',modules: ['coroutine'])
 json_dep = dependency('nlohmann_json')
+gtest = subproject('gtest')
+benchmark = subproject('benchmark')
 
 #boost_lib_path = boost_dep.get_pkgconfig_variable('libdir')
 boost_lib_path='/opt/homebrew/Cellar/boost/1.82.0/lib'
-core_includes = include_directories(['.','./include'])
+core_includes = include_directories(['.','./include','./http'])
+if get_option('enable-tests')
+  subdir('tests')
+endif
 executable(
   'crow_core',
   ['crow_core.cpp','boost_url.cpp'],

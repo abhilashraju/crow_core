@@ -173,6 +173,7 @@ struct Response {
     updateAlternative<file_body_response_type>();
     std::get<file_body_response_type>(*genericResponse).body() =
         std::move(file);
+    return true;
   }
 
   std::string_view getHeaderValue(std::string_view key) const {
