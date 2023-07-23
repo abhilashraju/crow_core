@@ -9,13 +9,13 @@ using namespace crow;
 using namespace boost::beast::http;
 using namespace boost::asio;
 using namespace boost::beast;
-void addHeaders(Response &res) {
+static void addHeaders(Response &res) {
 
   res.addHeader("myheader", "myvalue");
   res.keepAlive(true);
   res.result(boost::beast::http::status::ok);
 }
-void varifyHeaders(Response &res) {
+static void varifyHeaders(Response &res) {
   EXPECT_EQ(res.getHeaderValue("myheader"), "myvalue");
   EXPECT_EQ(res.keepAlive(), true);
   EXPECT_EQ(res.result(), boost::beast::http::status::ok);
@@ -34,7 +34,7 @@ template <class Serializer> struct lambda {
     sr.consume(buffer_bytes(buffers));
   }
 };
-
+template <class Serializer> lambda(Serializer &) -> lambda<Serializer>;
 template <bool isRequest, class Body, class Fields>
 auto writeMessage(message<isRequest, Body, Fields> &m, error_code &ec) {
 
@@ -82,7 +82,7 @@ TEST(http_response, filebody) {
   std::ofstream file;
   std::string_view s = "sample text";
   std::string_view path = "/tmp/temp.txt";
-  file.open(path);
+  file.open(path.data());
   file << s;
   file.close();
 
@@ -109,7 +109,7 @@ TEST(http_response, body_transitions) {
   std::ofstream file;
   std::string_view s = "sample text";
   std::string_view path = "/tmp/temp.txt";
-  file.open(path);
+  file.open(path.data());
   file << s;
   file.close();
 

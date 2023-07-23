@@ -14,7 +14,7 @@ CROW_ARGS=['-DSSL_ON','-DBMCWEB_INSECURE_DISABLE_AUTHX','-DBOOST_URL_NO_SOURCE_L
 boost_dep = dependency('boost',modules: ['coroutine'])
 json_dep = dependency('nlohmann_json')
 gtest = subproject('gtest')
-benchmark = subproject('benchmark')
+#benchmark = subproject('benchmark')
 
 #boost_lib_path = boost_dep.get_pkgconfig_variable('libdir')
 boost_lib_path='/opt/homebrew/Cellar/boost/1.82.0/lib'
