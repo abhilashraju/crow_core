@@ -2,15 +2,16 @@
 #include "boost/beast/http/serializer.hpp"
 #include "http/http_connection.hpp"
 #include "http/http_response.hpp"
-#include "gtest/gtest.h"
+
 #include <filesystem>
 #include <fstream>
+
+#include "gtest/gtest.h"
 using namespace crow;
 using namespace boost::beast::http;
 using namespace boost::asio;
 using namespace boost::beast;
 static void addHeaders(Response &res) {
-
   res.addHeader("myheader", "myvalue");
   res.keepAlive(true);
   res.result(boost::beast::http::status::ok);
@@ -21,27 +22,26 @@ static void varifyHeaders(Response &res) {
   EXPECT_EQ(res.result(), boost::beast::http::status::ok);
 }
 
-template <class Serializer> struct lambda {
+template <class Serializer> struct Lambda {
   Serializer &sr;
   mutable boost::beast::flat_buffer buffer;
-  lambda(Serializer &sr_) : sr(sr_) {}
+  explicit Lambda(Serializer &s) : sr(s) {}
 
   template <class ConstBufferSequence>
-  void operator()(error_code &ec, ConstBufferSequence const &buffers) const {
+  void operator()(error_code &ec, const ConstBufferSequence &buffers) const {
     ec = {};
     buffer.commit(
         net::buffer_copy(buffer.prepare(buffer_bytes(buffers)), buffers));
     sr.consume(buffer_bytes(buffers));
   }
 };
-template <class Serializer> lambda(Serializer &) -> lambda<Serializer>;
-template <bool isRequest, class Body, class Fields>
-auto writeMessage(message<isRequest, Body, Fields> &m, error_code &ec) {
+template <class Serializer> Lambda(Serializer &) -> Lambda<Serializer>;
 
-  serializer<isRequest, Body, Fields> sr{m};
+template <bool isRequest, class Body, class Fields>
+auto writeMessage(serializer<isRequest, Body, Fields> &sr, error_code &ec) {
   sr.split(true);
-  auto body = lambda(sr);
-  auto header = lambda(sr);
+  Lambda body(sr);
+  Lambda header(sr);
   do {
     sr.next(ec, header);
   } while (!sr.is_header_done());
@@ -54,7 +54,6 @@ auto writeMessage(message<isRequest, Body, Fields> &m, error_code &ec) {
 }
 
 TEST(http_response, Defaults) {
-
   Response res;
   EXPECT_EQ(std::holds_alternative<Response::string_body_response_type>(
                 res.genericResponse.value()),
@@ -66,7 +65,6 @@ TEST(http_response, headers) {
   varifyHeaders(res);
 }
 TEST(http_response, stringbody) {
-
   Response res;
   addHeaders(res);
   auto &body = res.body();
@@ -76,7 +74,6 @@ TEST(http_response, stringbody) {
   varifyHeaders(res);
 }
 TEST(http_response, filebody) {
-
   Response res;
   addHeaders(res);
   std::ofstream file;
@@ -89,21 +86,20 @@ TEST(http_response, filebody) {
   res.openFile(path);
 
   error_code ec{};
-  Response::file_body_response_type &body_resp =
+  Response::file_body_response_type &bodyResp =
       std::get<Response::file_body_response_type>(*res.genericResponse);
-
-  lambda visit = writeMessage(body_resp, ec);
+  response_serializer<boost::beast::http::file_body> sr{bodyResp};
+  Lambda visit = writeMessage(sr, ec);
 
   // EXPECT_EQ(ec, 0);
-  auto const b = buffers_front(visit.buffer.data());
-  std::string_view s1{reinterpret_cast<char const *>(b.data()), b.size()};
+  const auto b = buffers_front(visit.buffer.data());
+  std::string_view s1{static_cast<char *>(b.data()), b.size()};
   EXPECT_EQ(s1, s);
   std::filesystem::remove(path);
 
   varifyHeaders(res);
 }
 TEST(http_response, body_transitions) {
-
   Response res;
   addHeaders(res);
   std::ofstream file;
