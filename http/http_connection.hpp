@@ -649,9 +649,10 @@ private:
   auto &currentSerialiser() {
     return std::visit([this](auto &&s) { return s; }, *serializer);
   }
+
   void doWriteImpl(auto &ser) {
     BMCWEB_LOG_DEBUG << this << " doWrite";
-
+    // pritnFileds(ser.get());
     startDeadline();
     boost::beast::http::async_write(
         adaptor, ser,

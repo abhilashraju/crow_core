@@ -8,9 +8,9 @@ project(
     'cpp_std=c++20',
   ])
 
-CROW_ARGS=['-DSSL_ON','-DBMCWEB_INSECURE_DISABLE_AUTHX','-DBOOST_URL_NO_SOURCE_LOCATION','-DBMCWEB_INSECURE_DISABLE_AUTHX']
+CROW_ARGS=['-DBMCWEB_ENABLE_SSL','-DBMCWEB_INSECURE_DISABLE_AUTHX','-DBOOST_URL_NO_SOURCE_LOCATION','-DBMCWEB_INSECURE_DISABLE_AUTHX']
 #CHAI_ARGS=[]
-#openssl_dep = dependency('openssl', version: '>=1.1.1')
+openssl_dep = dependency('openssl', version: '>=1.1.1')
 boost_dep = dependency('boost',modules: ['coroutine'])
 json_dep = dependency('nlohmann_json')
 gtest = subproject('gtest')
@@ -26,6 +26,6 @@ executable(
   'crow_core',
   ['crow_core.cpp','boost_url.cpp'],
   include_directories: core_includes,
-  dependencies:[boost_dep,json_dep],
+  dependencies:[boost_dep,json_dep,openssl_dep],
   install: true,
   install_dir: get_option('bindir'),cpp_args : CROW_ARGS,link_args: ['-L' + boost_lib_path, '-lboost_coroutine'])

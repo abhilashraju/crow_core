@@ -5,3 +5,8 @@
 #define BMCWEB_LOG_CRITICAL std::cout
 #define BMCWEB_LOG_INFO std::cout
 #define BMCWEB_LOG_WARNING std::cout
+inline void pritnFileds(auto &m) {
+  for (auto &p : m) {
+    std::cout << p.name() << ": " << p.value() << "\n";
+  }
+}

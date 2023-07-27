@@ -11,7 +11,7 @@ json_dep,boost_dep
 http_response_test = executable('http_response_test', 
     [http_response_test_sources, test_main], 
     include_directories : core_includes,
-    dependencies : [http_response_test_deps,test_deps], 
+    dependencies : [http_response_test_deps,test_deps,openssl_dep], 
     cpp_args : CROW_ARGS,
     link_with : [ test_dep_libs])
 
