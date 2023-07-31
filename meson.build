@@ -15,16 +15,28 @@ boost_dep = dependency('boost',modules: ['coroutine'])
 json_dep = dependency('nlohmann_json')
 gtest = subproject('gtest')
 #benchmark = subproject('benchmark')
+nghttp2 = dependency('libnghttp2', version: '>=1.52.0', required : false)
+if not nghttp2.found()
+  cmake = import('cmake')
+  opt_var = cmake.subproject_options()
+  opt_var.add_cmake_defines({
+    'ENABLE_LIB_ONLY': true,
+    'ENABLE_STATIC_LIB': true
+  })
+  nghttp2_ex = cmake.subproject('nghttp2', options: opt_var)
+  nghttp2 = nghttp2_ex.dependency('nghttp2')
+endif
+crow_core_dependencies = nghttp2
 
 #boost_lib_path = boost_dep.get_pkgconfig_variable('libdir')
 boost_lib_path='/opt/homebrew/Cellar/boost/1.82.0/lib'
-core_includes = include_directories(['.','./include','./http'])
+core_includes = include_directories(['.','./include','./http','./subprojects/nghttp2-1.54.0/lib/includes/'])
 if get_option('enable-tests')
   subdir('tests')
 endif
 executable(
   'crow_core',
-  ['crow_core.cpp','boost_url.cpp'],
+  ['crow_core.cpp','boost_url.cpp','json_html_serializer.cpp'],
   include_directories: core_includes,
   dependencies:[boost_dep,json_dep,openssl_dep],
   install: true,

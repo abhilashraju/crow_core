@@ -8,124 +8,93 @@
 #include <boost/beast/http/message.hpp>
 #include <boost/beast/http/string_body.hpp>
 #include <boost/beast/websocket.hpp>
-#include <boost/url/url_view.hpp>
+#include <boost/url/url.hpp>
 
 #include <string>
 #include <string_view>
 #include <system_error>
 
-namespace crow
-{
+namespace crow {
 
-struct Request
-{
-    boost::beast::http::request<boost::beast::http::string_body> req;
-    boost::beast::http::fields& fields;
-    std::string_view url{};
-    boost::urls::url_view urlView{};
+struct Request {
+  boost::beast::http::request<boost::beast::http::string_body> req;
 
-    bool isSecure{false};
+private:
+  boost::urls::url urlBase{};
 
-    std::string& body;
+public:
+  bool isSecure{false};
 
-    boost::asio::io_context* ioService{};
-    boost::asio::ip::address ipAddress{};
+  boost::asio::io_context *ioService{};
+  boost::asio::ip::address ipAddress{};
 
-    std::shared_ptr<persistent_data::UserSession> session;
+  std::shared_ptr<persistent_data::UserSession> session;
 
-    std::string userRole{};
-    Request(boost::beast::http::request<boost::beast::http::string_body> reqIn,
-            std::error_code& ec) :
-        req(std::move(reqIn)),
-        fields(req.base()), body(req.body())
-    {
-        if (!setUrlInfo())
-        {
-            ec = std::make_error_code(std::errc::invalid_argument);
-        }
+  std::string userRole{};
+  Request(boost::beast::http::request<boost::beast::http::string_body> reqIn,
+          std::error_code &ec)
+      : req(std::move(reqIn)) {
+    if (!setUrlInfo()) {
+      ec = std::make_error_code(std::errc::invalid_argument);
     }
+  }
 
-    Request(const Request& other) :
-        req(other.req), fields(req.base()), isSecure(other.isSecure),
-        body(req.body()), ioService(other.ioService),
-        ipAddress(other.ipAddress), session(other.session),
-        userRole(other.userRole)
-    {
-        setUrlInfo();
+  Request(std::string_view bodyIn, std::error_code &ec) : req({}, bodyIn) {
+    if (!setUrlInfo()) {
+      ec = std::make_error_code(std::errc::invalid_argument);
     }
+  }
 
-    Request(Request&& other) noexcept :
-        req(std::move(other.req)), fields(req.base()), isSecure(other.isSecure),
-        body(req.body()), ioService(other.ioService),
-        ipAddress(std::move(other.ipAddress)),
-        session(std::move(other.session)), userRole(std::move(other.userRole))
-    {
-        setUrlInfo();
+  Request() = default;
+
+  Request(const Request &other) = default;
+  Request(Request &&other) = default;
+
+  Request &operator=(const Request &) = delete;
+  Request &operator=(const Request &&) = delete;
+  ~Request() = default;
+
+  boost::beast::http::verb method() const { return req.method(); }
+
+  std::string_view getHeaderValue(std::string_view key) const {
+    return req[key];
+  }
+
+  std::string_view getHeaderValue(boost::beast::http::field key) const {
+    return req[key];
+  }
+
+  std::string_view methodString() const { return req.method_string(); }
+
+  std::string_view target() const { return req.target(); }
+
+  boost::urls::url_view url() const { return {urlBase}; }
+
+  const boost::beast::http::fields &fields() const { return req.base(); }
+
+  const std::string &body() const { return req.body(); }
+
+  bool target(std::string_view target) {
+    req.target(target);
+    return setUrlInfo();
+  }
+
+  unsigned version() const { return req.version(); }
+
+  bool isUpgrade() const { return boost::beast::websocket::is_upgrade(req); }
+
+  bool keepAlive() const { return req.keep_alive(); }
+
+private:
+  bool setUrlInfo() {
+    auto result = boost::urls::parse_relative_ref(target());
+
+    if (!result) {
+      return false;
     }
-
-    Request& operator=(const Request&) = delete;
-    Request& operator=(const Request&&) = delete;
-    ~Request() = default;
-
-    boost::beast::http::verb method() const
-    {
-        return req.method();
-    }
-
-    std::string_view getHeaderValue(std::string_view key) const
-    {
-        return req[key];
-    }
-
-    std::string_view getHeaderValue(boost::beast::http::field key) const
-    {
-        return req[key];
-    }
-
-    std::string_view methodString() const
-    {
-        return req.method_string();
-    }
-
-    std::string_view target() const
-    {
-        return req.target();
-    }
-
-    bool target(const std::string_view target)
-    {
-        req.target(target);
-        return setUrlInfo();
-    }
-
-    unsigned version() const
-    {
-        return req.version();
-    }
-
-    bool isUpgrade() const
-    {
-        return boost::beast::websocket::is_upgrade(req);
-    }
-
-    bool keepAlive() const
-    {
-        return req.keep_alive();
-    }
-
-  private:
-    bool setUrlInfo()
-    {
-        auto result = boost::urls::parse_relative_ref(target());
-
-        if (!result)
-        {
-            return false;
-        }
-        urlView = *result;
-        url = urlView.encoded_path();
-        return true;
-    }
+    urlBase = *result;
+    return true;
+  }
 };
 
 } // namespace crow

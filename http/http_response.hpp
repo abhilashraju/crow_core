@@ -1,15 +1,13 @@
 #pragma once
 #include "logging.hpp"
-#include "nlohmann/json.hpp"
+#include "utils/hex_utils.hpp"
 
-#include <boost/asio/buffer.hpp>
-#include <boost/beast/core/flat_static_buffer.hpp>
 #include <boost/beast/http/basic_dynamic_body.hpp>
 #include <boost/beast/http/buffer_body.hpp>
 #include <boost/beast/http/file_body.hpp>
 #include <boost/beast/http/message.hpp>
 #include <boost/beast/http/string_body.hpp>
-#include <utils/hex_utils.hpp>
+#include <nlohmann/json.hpp>
 
 #include <optional>
 #include <string>
@@ -18,29 +16,25 @@
 namespace crow {
 
 template <typename Adaptor, typename Handler> class Connection;
-
 template <typename Ret> struct SafeVisit {
   Ret operator()(auto callable, const auto &res) const {
-
     try {
       return std::visit(std::move(callable), res);
-    } catch (std::bad_variant_access &ex) {
+    } catch (std::bad_variant_access & /*unused*/) {
     }
     return Ret{};
   }
 };
 template <> struct SafeVisit<void> {
   void operator()(auto callable, auto &res) const {
-
     try {
       std::visit(std::move(callable), res);
-    } catch (std::bad_variant_access &ex) {
+    } catch (std::bad_variant_access & /*unused*/) {
     }
   }
 };
 struct SafeMove {
   void operator()(auto callable) const {
-
     try {
       callable();
     } catch (std::bad_variant_access & /*unused*/) {
@@ -53,12 +47,9 @@ struct Response {
       boost::beast::http::response<boost::beast::http::string_body>;
   using file_body_response_type =
       boost::beast::http::response<boost::beast::http::file_body>;
-  using buffer_body_response_type =
-      boost::beast::http::response<boost::beast::http::buffer_body>;
 
   using response_type =
-      std::variant<string_body_response_type, file_body_response_type,
-                   buffer_body_response_type>;
+      std::variant<string_body_response_type, file_body_response_type>;
 
   std::optional<response_type> genericResponse;
 
@@ -73,13 +64,16 @@ struct Response {
     SafeVisit<void>()([key, value](auto &&res) { res.set(key, value); },
                       genericResponse.value());
   }
+  void clearHeader(boost::beast::http::field key) {
+    SafeVisit<void>()([key](auto &&res) { res.erase(key); },
+                      genericResponse.value());
+  }
 
   Response() : genericResponse(string_body_response_type{}) {}
 
   Response(Response &&res) noexcept
       : genericResponse(std::move(res.genericResponse)),
-        completed(res.completed) {
-    jsonValue = std::move(res.jsonValue);
+        jsonValue(std::move(res.jsonValue)), completed(res.completed) {
     // See note in operator= move handler for why this is needed.
     if (!res.completed) {
       completeRequestHandler = std::move(res.completeRequestHandler);
@@ -96,13 +90,14 @@ struct Response {
   Response &operator=(const Response &r) = delete;
 
   Response &operator=(Response &&r) noexcept {
-    BMCWEB_LOG_DEBUG << "Moving response containers; this: " << this
-                     << "; other: " << &r;
+    BMCWEB_LOG_DEBUG("Moving response containers; this: {}; other: {}",
+                     logPtr(this), logPtr(&r));
     if (this == &r) {
       return *this;
     }
     SafeMove()(
         [this, &r]() { genericResponse = std::move(r.genericResponse); });
+
     r.genericResponse.emplace(response_type{});
     jsonValue = std::move(r.jsonValue);
 
@@ -149,6 +144,10 @@ struct Response {
   }
 
   bool isCompleted() const noexcept { return completed; }
+  boost::beast::http::fields fields() {
+    return SafeVisit<boost::beast::http::fields>()(
+        [](auto &&res) { return res.base(); }, genericResponse.value());
+  }
   template <typename Alternative> void updateAlternative() {
     if (!std::holds_alternative<Alternative>(genericResponse.value())) {
       Alternative altbody{};
@@ -197,7 +196,8 @@ struct Response {
   }
 
   void clear() {
-    BMCWEB_LOG_DEBUG << this << " Clearing response containers";
+    BMCWEB_LOG_DEBUG("{} Clearing response containers", logPtr(this));
+
     genericResponse.emplace(response_type{});
     jsonValue.clear();
     completed = false;
@@ -225,13 +225,13 @@ struct Response {
       addHeader(boost::beast::http::field::etag, etag);
     }
     if (completed) {
-      BMCWEB_LOG_ERROR << this << " Response was ended twice";
+      BMCWEB_LOG_ERROR("{} Response was ended twice", logPtr(this));
       return;
     }
     completed = true;
-    BMCWEB_LOG_DEBUG << this << " calling completion handler";
+    BMCWEB_LOG_DEBUG("{} calling completion handler", logPtr(this));
     if (completeRequestHandler) {
-      BMCWEB_LOG_DEBUG << this << " completion handler was valid";
+      BMCWEB_LOG_DEBUG("{} completion handler was valid", logPtr(this));
       completeRequestHandler(*this);
     }
   }
@@ -239,7 +239,7 @@ struct Response {
   bool isAlive() const { return isAliveHelper && isAliveHelper(); }
 
   void setCompleteRequestHandler(std::function<void(Response &)> &&handler) {
-    BMCWEB_LOG_DEBUG << this << " setting completion handler";
+    BMCWEB_LOG_DEBUG("{} setting completion handler", logPtr(this));
     completeRequestHandler = std::move(handler);
 
     // Now that we have a new completion handler attached, we're no longer
@@ -248,8 +248,8 @@ struct Response {
   }
 
   std::function<void(Response &)> releaseCompleteRequestHandler() {
-    BMCWEB_LOG_DEBUG << this << " releasing completion handler"
-                     << static_cast<bool>(completeRequestHandler);
+    BMCWEB_LOG_DEBUG("{} releasing completion handler{}", logPtr(this),
+                     static_cast<bool>(completeRequestHandler));
     std::function<void(Response &)> ret = completeRequestHandler;
     completeRequestHandler = nullptr;
     completed = true;
@@ -275,7 +275,7 @@ struct Response {
     std::string hexVal = "\"" + intToHexString(hashval, 8) + "\"";
     addHeader(boost::beast::http::field::etag, hexVal);
     if (expectedHash && hexVal == *expectedHash) {
-      jsonValue.clear();
+      jsonValue = nullptr;
       result(boost::beast::http::status::not_modified);
     }
   }
@@ -286,82 +286,6 @@ private:
   std::optional<std::string> expectedHash;
   bool completed = false;
   std::function<void(Response &)> completeRequestHandler;
-  std::function<bool()> isAliveHelper;
-};
-
-struct DynamicResponse {
-  using response_type = boost::beast::http::response<
-      boost::beast::http::basic_dynamic_body<boost::beast::flat_static_buffer<
-          static_cast<std::size_t>(1024 * 1024)>>>;
-
-  std::optional<response_type> bufferResponse;
-
-  void addHeader(const std::string_view key, const std::string_view value) {
-    bufferResponse->set(key, value);
-  }
-
-  void addHeader(boost::beast::http::field key, std::string_view value) {
-    bufferResponse->set(key, value);
-  }
-
-  DynamicResponse() : bufferResponse(response_type{}) {}
-
-  ~DynamicResponse() = default;
-
-  DynamicResponse(const DynamicResponse &) = delete;
-
-  DynamicResponse(DynamicResponse &&) = delete;
-
-  DynamicResponse &operator=(const DynamicResponse &r) = delete;
-
-  DynamicResponse &operator=(DynamicResponse &&r) noexcept {
-    BMCWEB_LOG_DEBUG << "Moving response containers";
-    bufferResponse = std::move(r.bufferResponse);
-    r.bufferResponse.emplace(response_type{});
-    completed = r.completed;
-    return *this;
-  }
-
-  void result(boost::beast::http::status v) { bufferResponse->result(v); }
-
-  boost::beast::http::status result() { return bufferResponse->result(); }
-
-  unsigned resultInt() { return bufferResponse->result_int(); }
-
-  std::string_view reason() { return bufferResponse->reason(); }
-
-  bool isCompleted() const noexcept { return completed; }
-
-  void keepAlive(bool k) { bufferResponse->keep_alive(k); }
-
-  bool keepAlive() { return bufferResponse->keep_alive(); }
-
-  void preparePayload() { bufferResponse->prepare_payload(); }
-
-  void clear() {
-    BMCWEB_LOG_DEBUG << this << " Clearing response containers";
-    bufferResponse.emplace(response_type{});
-    completed = false;
-  }
-
-  void end() {
-    if (completed) {
-      BMCWEB_LOG_DEBUG << "Dynamic response was ended twice";
-      return;
-    }
-    completed = true;
-    BMCWEB_LOG_DEBUG << "calling completion handler";
-    if (completeRequestHandler) {
-      BMCWEB_LOG_DEBUG << "completion handler was valid";
-      completeRequestHandler();
-    }
-  }
-
-  bool isAlive() { return isAliveHelper && isAliveHelper(); }
-  std::function<void()> completeRequestHandler;
-
-private:
-  bool completed{};
   std::function<bool()> isAliveHelper;
 };
 } // namespace crow

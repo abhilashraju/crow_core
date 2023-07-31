@@ -1,6 +1,7 @@
 http_connection_test_sources = [
     'http_connection_test.cpp',
-    '../../boost_url.cpp'
+    '../../boost_url.cpp',
+    '../../json_html_serializer.cpp'
 ]
 
 http_connection_test_deps = [

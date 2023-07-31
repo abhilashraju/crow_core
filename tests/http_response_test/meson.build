@@ -1,5 +1,6 @@
 http_response_test_sources = [
-    'http_response_test.cpp'
+    'http_response_test.cpp',
+    '../../json_html_serializer.cpp'
 ]
 
 http_response_test_deps = [
