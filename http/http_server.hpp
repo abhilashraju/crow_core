@@ -93,7 +93,8 @@ public:
     if (fs::exists(oldCert)) {
       fs::remove("/home/root/server.pem");
     }
-    fs::path certPath = "/etc/ssl/certs/https/";
+    // fs::path certPath = "/etc/ssl/certs/https/";
+    fs::path certPath = "/tmp/ssl/certs/https/";
     // if path does not exist create the path so that
     // self signed certificate can be created in the
     // path

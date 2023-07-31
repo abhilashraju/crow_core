@@ -55,9 +55,13 @@ struct Server {
 
   Server() {
     serverThread = std::thread([this]() {
-      app.port(8082);
-      app.run();
-      io->run();
+      try {
+        app.port(8082);
+        app.run();
+        io->run();
+      } catch (std::exception &ex) {
+        BMCWEB_LOG_CRITICAL("%s", ex.what());
+      }
     });
   }
   void exit() {
