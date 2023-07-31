@@ -4,7 +4,7 @@ http_response_test_sources = [
 ]
 
 http_response_test_deps = [
-json_dep,boost_dep
+json_dep,boost_dep,crow_core_dependencies
 ]
 
 

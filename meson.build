@@ -30,7 +30,7 @@ crow_core_dependencies = nghttp2
 
 #boost_lib_path = boost_dep.get_pkgconfig_variable('libdir')
 boost_lib_path='/opt/homebrew/Cellar/boost/1.82.0/lib'
-core_includes = include_directories(['.','./include','./http','./subprojects/nghttp2-1.54.0/lib/includes/'])
+core_includes = include_directories(['.','./include','./http'])
 if get_option('enable-tests')
   subdir('tests')
 endif
@@ -38,6 +38,6 @@ executable(
   'crow_core',
   ['crow_core.cpp','boost_url.cpp','json_html_serializer.cpp'],
   include_directories: core_includes,
-  dependencies:[boost_dep,json_dep,openssl_dep],
+  dependencies:[boost_dep,json_dep,openssl_dep,crow_core_dependencies],
   install: true,
   install_dir: get_option('bindir'),cpp_args : CROW_ARGS,link_args: ['-L' + boost_lib_path, '-lboost_coroutine'])

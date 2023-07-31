@@ -5,7 +5,7 @@ http_connection_test_sources = [
 ]
 
 http_connection_test_deps = [
-json_dep,boost_dep
+json_dep,boost_dep,crow_core_dependencies
 ]
 
 

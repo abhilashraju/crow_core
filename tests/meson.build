@@ -7,7 +7,8 @@ gtest_dep = gtest.get_variable('gtest_dep')
 test_main = files('tests_main.cc')
 
 test_deps = [
-    gtest_dep
+    gtest_dep,
+    crow_core_dependencies
 ]
 
 test_dep_libs = [
