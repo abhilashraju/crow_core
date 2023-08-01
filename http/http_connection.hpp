@@ -51,13 +51,13 @@ class Connection :
     using self_type = Connection<Adaptor, Handler>;
 
   public:
-    using string_body_serailizer = boost::beast::http::response_serializer<
+    using string_body_serializer = boost::beast::http::response_serializer<
         boost::beast::http::string_body>;
-    using file_body_serailizer =
+    using file_body_serializer =
         boost::beast::http::response_serializer<boost::beast::http::file_body>;
 
-    using variant_serializer =
-        std::variant<string_body_serailizer, file_body_serailizer>;
+    using Serializer =
+        std::variant<string_body_serializer, file_body_serializer>;
     Connection(Handler* handlerIn, boost::asio::steady_timer&& timerIn,
                std::function<std::string()>& getCachedDateStrF,
                Adaptor adaptorIn) :
@@ -551,7 +551,19 @@ class Connection :
         req.reset();
         doReadHeaders();
     }
-    void doWriteImpl(auto& bodySerialiser)
+    void doWriteImpl(string_body_serializer& bodySerialiser)
+    {
+        BMCWEB_LOG_DEBUG("{} doWrite", logPtr(this));
+
+        startDeadline();
+        boost::beast::http::async_write(adaptor, bodySerialiser,
+                                        [this, self(shared_from_this())](
+                                            const boost::system::error_code& ec,
+                                            std::size_t bytesTransferred) {
+            onWriteFinish(ec, bytesTransferred);
+        });
+    }
+    void doWriteImpl(file_body_serializer& bodySerialiser)
     {
         BMCWEB_LOG_DEBUG("{} doWrite", logPtr(this));
 
@@ -572,7 +584,7 @@ class Connection :
             [this](auto&& bodySerialiser) {
             this->doWriteImpl(bodySerialiser);
             },
-            serializer.value());
+            *serializer);
     }
 
     void cancelDeadlineTimer()
@@ -637,14 +649,14 @@ class Connection :
 
     boost::beast::flat_static_buffer<8192> buffer;
 
-    std::optional<variant_serializer> serializer;
+    std::optional<Serializer> serializer;
     auto makeSerializer(Response::string_body_response_type& resp)
     {
-        return string_body_serailizer{resp};
+        return string_body_serializer{resp};
     }
     auto makeSerializer(Response::file_body_response_type& resp)
     {
-        return file_body_serailizer{resp};
+        return file_body_serializer{resp};
     }
 
     std::optional<crow::Request> req;
