@@ -19,15 +19,14 @@ namespace crow
 template <typename Adaptor, typename Handler>
 class Connection;
 
-template <typename Ret = std::nullptr_t>
+template <typename Ret = void>
 inline Ret safeVisit(auto callable, auto& res)
 {
     try
     {
-        if constexpr (std::is_same_v<Ret, std::nullptr_t>)
+        if constexpr (std::is_same_v<Ret, void>)
         {
             std::visit(std::move(callable), res);
-            return std::nullptr_t{};
         }
         else
         {
@@ -36,7 +35,10 @@ inline Ret safeVisit(auto callable, auto& res)
     }
     catch (std::bad_variant_access& /*unused*/)
     {}
-    return Ret{};
+    if constexpr (!std::is_same_v<Ret, void>)
+    {
+        return Ret{};
+    }
 }
 
 inline void safeMove(auto callable)
