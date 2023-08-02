@@ -177,22 +177,22 @@ struct Response
         return safeVisit<boost::beast::http::fields>(
             [](auto&& res) { return res.base(); }, genericResponse.value());
     }
-    template <typename NewBodyType>
-    void updateBodyIfNeeded()
+    template <typename NewResponseType>
+    void updateResponseIfNeeded()
     {
-        if (!std::holds_alternative<NewBodyType>(genericResponse.value()))
+        if (!std::holds_alternative<NewResponseType>(genericResponse.value()))
         {
-            NewBodyType altbody{};
+            NewResponseType newResp{};
             safeVisit(
-                [&altbody](auto&& other) { altbody.base() = other.base(); },
+                [&newResp](auto&& other) { newResp.base() = other.base(); },
                 genericResponse.value());
 
-            genericResponse.emplace(std::move(altbody));
+            genericResponse.emplace(std::move(newResp));
         }
     }
     std::string& body()
     {
-        updateBodyIfNeeded<string_body_response_type>();
+        updateResponseIfNeeded<string_body_response_type>();
         return std::get<string_body_response_type>(*genericResponse).body();
     }
 
@@ -205,7 +205,7 @@ struct Response
         {
             return false;
         }
-        updateBodyIfNeeded<file_body_response_type>();
+        updateResponseIfNeeded<file_body_response_type>();
         std::get<file_body_response_type>(*genericResponse).body() =
             std::move(file);
         return true;
