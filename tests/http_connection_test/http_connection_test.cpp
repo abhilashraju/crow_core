@@ -16,16 +16,12 @@ using namespace boost::asio;
 using namespace boost::beast;
 namespace
 {
-inline auto stringSplitter(char c)
+
+inline auto split(const std::string_view& input, char* c)
 {
-    return std::views::split(c) | std::views::transform([](auto&& sub) {
-               return std::string(sub.begin(), sub.end());
-           });
-}
-inline auto split(const std::string_view& input, char c)
-{
-    auto vw = input | stringSplitter(c);
-    return std::vector(vw.begin(), vw.end());
+    std::vector<std::string> result;
+    boost::split(result, input, boost::is_any_of(c));
+    return result;
 }
 struct Router
 {
@@ -45,7 +41,7 @@ struct Router
             asyncResp->res.body() = "Hello World";
             return;
         }
-        auto paths = split(req.target(), '/');
+        auto paths = split(req.target(), "/");
 
         boost::beast::http::file_body::value_type body;
 
