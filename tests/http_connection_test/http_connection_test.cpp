@@ -5,6 +5,8 @@
 #include "simple_client.hpp"
 #include "testapp.hpp"
 
+#include <boost/algorithm/string.hpp>
+
 #include <filesystem>
 #include <fstream>
 #include <thread>
@@ -17,10 +19,10 @@ using namespace boost::beast;
 namespace
 {
 
-inline auto split(const std::string_view& input, char* c)
+inline auto split(const std::string_view& input, std::string_view c)
 {
     std::vector<std::string> result;
-    boost::split(result, input, boost::is_any_of(c));
+    boost::split(result, input, boost::is_any_of(c.data()));
     return result;
 }
 struct Router
