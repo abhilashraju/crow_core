@@ -172,22 +172,39 @@ struct Response
     {
         return completed;
     }
-    boost::beast::http::fields fields()
+    boost::beast::http::header<false, boost::beast::http::fields>& fields()
     {
-        return safeVisit<boost::beast::http::fields>(
-            [](auto&& res) { return res.base(); }, genericResponse.value());
+        string_body_response_type* sresp =
+            std::get_if<string_body_response_type>(&genericResponse.value());
+        if (sresp != nullptr)
+        {
+            return sresp->base();
+        }
+
+        file_body_response_type* fresp =
+            std::get_if<file_body_response_type>(&genericResponse.value());
+        return fresp->base();
+    }
+    const boost::beast::http::header<false, boost::beast::http::fields>&
+        fields() const
+    {
+        const string_body_response_type* sresp =
+            std::get_if<string_body_response_type>(&genericResponse.value());
+        if (sresp != nullptr)
+        {
+            return sresp->base();
+        }
+
+        const file_body_response_type* fresp =
+            std::get_if<file_body_response_type>(&genericResponse.value());
+        return fresp->base();
     }
     template <typename NewResponseType>
     void updateResponseIfNeeded()
     {
         if (!std::holds_alternative<NewResponseType>(genericResponse.value()))
         {
-            NewResponseType newResp{};
-            safeVisit(
-                [&newResp](auto&& other) { newResp.base() = other.base(); },
-                genericResponse.value());
-
-            genericResponse.emplace(std::move(newResp));
+            *genericResponse = NewResponseType(std::move(fields()));
         }
     }
     std::string& body()
@@ -209,37 +226,63 @@ struct Response
         std::get<file_body_response_type>(*genericResponse).body() =
             std::move(file);
         return true;
+
+        // file_body_response_type& resp =
+        //     genericResponse.value().emplace<file_body_response_type>(
+        //         std::move(fields()));
+        // resp.body() = std::move(file);
     }
 
     std::string_view getHeaderValue(std::string_view key) const
     {
-        return safeVisit<std::string_view>(
-            [key](auto&& res) { return res.base()[key]; },
-            genericResponse.value());
+        return fields()[key];
     }
 
     void keepAlive(bool k)
     {
-        safeVisit([k](auto&& res) { res.keep_alive(k); },
-                  genericResponse.value());
+        string_body_response_type* sresp =
+            std::get_if<string_body_response_type>(&genericResponse.value());
+        if (sresp != nullptr)
+        {
+            return sresp->keep_alive(k);
+        }
+        file_body_response_type* fresp =
+            std::get_if<file_body_response_type>(&genericResponse.value());
+        return fresp->keep_alive(k);
     }
 
     bool keepAlive() const
     {
-        return safeVisit<bool>([](auto&& res) { return res.keep_alive(); },
-                               genericResponse.value());
+        const string_body_response_type* sresp =
+            std::get_if<string_body_response_type>(&genericResponse.value());
+        if (sresp != nullptr)
+        {
+            return sresp->keep_alive();
+        }
+        const file_body_response_type* fresp =
+            std::get_if<file_body_response_type>(&genericResponse.value());
+        return fresp->keep_alive();
     }
 
     void preparePayload()
     {
-        safeVisit([this](auto&& res) { return preparePayload(res); },
-                  genericResponse.value());
+        string_body_response_type* sresp =
+            std::get_if<string_body_response_type>(&genericResponse.value());
+        if (sresp != nullptr)
+        {
+            return sresp->content_length(
+                getContentLength(sresp->payload_size(), sresp->result()));
+        }
+        file_body_response_type* fresp =
+            std::get_if<file_body_response_type>(&genericResponse.value());
+        return fresp->content_length(
+            getContentLength(fresp->payload_size(), fresp->result()));
     }
-    void preparePayload(auto& bodyResponse)
+    uint64_t getContentLength(boost::optional<uint64_t> pSize,
+                              boost::beast::http::status result)
     {
         // This code is a throw-free equivalent to
         // beast::http::message::prepare_payload
-        boost::optional<uint64_t> pSize = bodyResponse.payload_size();
         using boost::beast::http::status;
         using boost::beast::http::status_class;
         using boost::beast::http::to_status_class;
@@ -249,11 +292,10 @@ struct Response
         }
         else
         {
-            bool is1XXReturn = to_status_class(bodyResponse.result()) ==
+            bool is1XXReturn = to_status_class(result) ==
                                status_class::informational;
-            if (*pSize > 0 &&
-                (is1XXReturn || bodyResponse.result() == status::no_content ||
-                 bodyResponse.result() == status::not_modified))
+            if (*pSize > 0 && (is1XXReturn || result == status::no_content ||
+                               result == status::not_modified))
             {
                 BMCWEB_LOG_CRITICAL(
                     "{} Response content provided but code was no-content or not_modified, which aren't allowed to have a body",
@@ -262,7 +304,7 @@ struct Response
                 body().clear();
             }
         }
-        bodyResponse.content_length(*pSize);
+        return *pSize;
     }
 
     void clear()

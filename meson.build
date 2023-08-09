@@ -40,4 +40,4 @@ executable(
   include_directories: core_includes,
   dependencies:[boost_dep,json_dep,openssl_dep,crow_core_dependencies],
   install: true,
-  install_dir: get_option('bindir'),cpp_args : CROW_ARGS,link_args: ['-L' + boost_lib_path, '-lboost_coroutine'])
+  install_dir: get_option('bindir'),cpp_args : CROW_ARGS,link_args: ['-L' + boost_lib_path])

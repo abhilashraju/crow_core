@@ -15,8 +15,7 @@ http_connection_test = executable('http_connection_test',
     include_directories : core_includes,
     dependencies : [http_connection_test_deps,test_deps,openssl_dep], 
     cpp_args : CROW_ARGS,
-    link_with : [ test_dep_libs],
-    link_args: ['-L' + boost_lib_path, '-lboost_coroutine'])
+    link_with : [ test_dep_libs])
 
 test('connection test', http_connection_test)
 
