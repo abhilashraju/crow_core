@@ -19,28 +19,6 @@ namespace crow
 template <typename Adaptor, typename Handler>
 class Connection;
 
-template <typename Ret = void>
-inline Ret safeVisit(auto callable, auto& res)
-{
-    try
-    {
-        if constexpr (std::is_same_v<Ret, void>)
-        {
-            std::visit(std::move(callable), res);
-        }
-        else
-        {
-            return std::visit(std::move(callable), res);
-        }
-    }
-    catch (std::bad_variant_access& /*unused*/)
-    {}
-    if constexpr (!std::is_same_v<Ret, void>)
-    {
-        return Ret{};
-    }
-}
-
 inline void safeMove(auto callable)
 {
     try
@@ -69,19 +47,16 @@ struct Response
 
     void addHeader(const std::string_view key, const std::string_view value)
     {
-        safeVisit([key, value](auto&& res) { res.set(key, value); },
-                  genericResponse.value());
+        fields().insert(key, value);
     }
 
     void addHeader(boost::beast::http::field key, std::string_view value)
     {
-        safeVisit([key, value](auto&& res) { res.set(key, value); },
-                  genericResponse.value());
+        fields().insert(key, value);
     }
     void clearHeader(boost::beast::http::field key)
     {
-        safeVisit([key](auto&& res) { res.erase(key); },
-                  genericResponse.value());
+        fields().erase(key);
     }
 
     Response() : genericResponse(string_body_response_type{}) {}
@@ -142,30 +117,69 @@ struct Response
 
     void result(unsigned v)
     {
-        safeVisit([v](auto&& res) { res.result(v); }, genericResponse.value());
+        string_body_response_type* sresp =
+            std::get_if<string_body_response_type>(&genericResponse.value());
+        if (sresp != nullptr)
+        {
+            return sresp->result(v);
+        }
+
+        file_body_response_type* fresp =
+            std::get_if<file_body_response_type>(&genericResponse.value());
+        return fresp->result(v);
     }
 
     void result(boost::beast::http::status v)
     {
-        safeVisit([v](auto&& res) { res.result(v); }, genericResponse.value());
+        string_body_response_type* sresp =
+            std::get_if<string_body_response_type>(&genericResponse.value());
+        if (sresp != nullptr)
+        {
+            return sresp->result(v);
+        }
+
+        file_body_response_type* fresp =
+            std::get_if<file_body_response_type>(&genericResponse.value());
+        return fresp->result(v);
     }
 
     boost::beast::http::status result() const
     {
-        return safeVisit<boost::beast::http::status>(
-            [](auto&& res) { return res.result(); }, genericResponse.value());
+        const string_body_response_type* sresp =
+            std::get_if<string_body_response_type>(&genericResponse.value());
+        if (sresp != nullptr)
+        {
+            return sresp->result();
+        }
+        const file_body_response_type* fresp =
+            std::get_if<file_body_response_type>(&genericResponse.value());
+        return fresp->result();
     }
 
     unsigned resultInt() const
     {
-        return safeVisit<unsigned>([](auto&& res) { return res.result_int(); },
-                                   genericResponse.value());
+        const string_body_response_type* sresp =
+            std::get_if<string_body_response_type>(&genericResponse.value());
+        if (sresp != nullptr)
+        {
+            return sresp->result_int();
+        }
+        const file_body_response_type* fresp =
+            std::get_if<file_body_response_type>(&genericResponse.value());
+        return fresp->result_int();
     }
 
     std::string_view reason() const
     {
-        return safeVisit<std::string_view>(
-            [](auto&& res) { return res.reason(); }, genericResponse.value());
+        const string_body_response_type* sresp =
+            std::get_if<string_body_response_type>(&genericResponse.value());
+        if (sresp != nullptr)
+        {
+            return sresp->reason();
+        }
+        const file_body_response_type* fresp =
+            std::get_if<file_body_response_type>(&genericResponse.value());
+        return fresp->reason();
     }
 
     bool isCompleted() const noexcept
