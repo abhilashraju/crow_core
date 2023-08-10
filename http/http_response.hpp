@@ -214,17 +214,18 @@ struct Response
         return fresp->base();
     }
     template <typename NewResponseType>
-    void updateResponseIfNeeded()
+    NewResponseType& updateResponseIfNeeded()
     {
         if (!std::holds_alternative<NewResponseType>(genericResponse.value()))
         {
-            *genericResponse = NewResponseType(std::move(fields()));
+            auto temp = std::move(fields());
+            return (*genericResponse).emplace<NewResponseType>(std::move(temp));
         }
+        return std::get<NewResponseType>(*genericResponse);
     }
     std::string& body()
     {
-        updateResponseIfNeeded<string_body_response_type>();
-        return std::get<string_body_response_type>(*genericResponse).body();
+        return updateResponseIfNeeded<string_body_response_type>().body();
     }
 
     bool openFile(const std::filesystem::path& path)
@@ -236,15 +237,10 @@ struct Response
         {
             return false;
         }
-        updateResponseIfNeeded<file_body_response_type>();
-        std::get<file_body_response_type>(*genericResponse).body() =
-            std::move(file);
+        file_body_response_type& fileBodyRes =
+            updateResponseIfNeeded<file_body_response_type>();
+        fileBodyRes.body() = std::move(file);
         return true;
-
-        // file_body_response_type& resp =
-        //     genericResponse.value().emplace<file_body_response_type>(
-        //         std::move(fields()));
-        // resp.body() = std::move(file);
     }
 
     std::string_view getHeaderValue(std::string_view key) const
