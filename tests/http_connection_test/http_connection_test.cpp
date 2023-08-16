@@ -45,7 +45,7 @@ struct Router
         asyncResp->res.addHeader("myheader", "myvalue");
         if (req.target() == "/hello")
         {
-            asyncResp->res.body() = "Hello World";
+            asyncResp->res.write("Hello World");
             return;
         }
         auto paths = split(req.target(), '/');

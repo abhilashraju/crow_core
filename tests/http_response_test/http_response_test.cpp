@@ -80,9 +80,8 @@ TEST(http_response, stringbody)
 {
     Response res;
     addHeaders(res);
-    auto& body = res.body();
     std::string_view bodyvalue = "this is my new body";
-    body += bodyvalue;
+    res.write({bodyvalue.data(), bodyvalue.length()});
     EXPECT_EQ(*res.body(), bodyvalue);
     varifyHeaders(res);
 }
@@ -101,7 +100,7 @@ TEST(http_response, filebody)
 
     error_code ec{};
     Response::file_response& bodyResp =
-        std::get<Response::file_response>(res.response);
+        boost::variant2::get<Response::file_response>(res.response);
     response_serializer<boost::beast::http::file_body> sr{bodyResp};
     Lambda visit = writeMessage(sr, ec);
 
@@ -126,14 +125,14 @@ TEST(http_response, body_transitions)
 
     res.openFile(path);
 
-    EXPECT_EQ(std::holds_alternative<Response::file_response>(
+    EXPECT_EQ(boost::variant2::holds_alternative<Response::file_response>(
                   res.response),
               true);
 
     varifyHeaders(res);
     res.write("body text");
 
-    EXPECT_EQ(std::holds_alternative<Response::string_body_response_type>(
+    EXPECT_EQ(boost::variant2::holds_alternative<Response::string_response>(
                   res.response),
               true);
 
