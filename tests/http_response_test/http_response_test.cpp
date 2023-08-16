@@ -7,17 +7,14 @@
 #include <fstream>
 
 #include "gtest/gtest.h"
-using namespace crow;
-using namespace boost::beast::http;
-using namespace boost::asio;
-using namespace boost::beast;
-static void addHeaders(Response& res)
+
+static void addHeaders(crow::Response& res)
 {
     res.addHeader("myheader", "myvalue");
     res.keepAlive(true);
     res.result(boost::beast::http::status::ok);
 }
-static void varifyHeaders(Response& res)
+static void varifyHeaders(crow::Response& res)
 {
     EXPECT_EQ(res.getHeaderValue("myheader"), "myvalue");
     EXPECT_EQ(res.keepAlive(), true);
@@ -32,19 +29,21 @@ struct Lambda
     explicit Lambda(Serializer& s) : sr(s) {}
 
     template <class ConstBufferSequence>
-    void operator()(error_code& ec, const ConstBufferSequence& buffers) const
+    void operator()(boost::beast::error_code& ec,
+                    const ConstBufferSequence& buffers) const
     {
         ec = {};
-        buffer.commit(
-            net::buffer_copy(buffer.prepare(buffer_bytes(buffers)), buffers));
-        sr.consume(buffer_bytes(buffers));
+        buffer.commit(boost::asio::buffer_copy(
+            buffer.prepare(boost::beast::buffer_bytes(buffers)), buffers));
+        sr.consume(boost::beast::buffer_bytes(buffers));
     }
 };
 template <class Serializer>
 Lambda(Serializer&) -> Lambda<Serializer>;
 
 template <bool isRequest, class Body, class Fields>
-auto writeMessage(serializer<isRequest, Body, Fields>& sr, error_code& ec)
+auto writeMessage(boost::beast::http::serializer<isRequest, Body, Fields>& sr,
+                  boost::beast::error_code& ec)
 {
     sr.split(true);
     Lambda body(sr);
@@ -65,20 +64,21 @@ auto writeMessage(serializer<isRequest, Body, Fields>& sr, error_code& ec)
 
 TEST(http_response, Defaults)
 {
-    Response res;
-    EXPECT_EQ(boost::variant2::holds_alternative<Response::string_response>(
-                  res.response),
-              true);
+    crow::Response res;
+    EXPECT_EQ(
+        boost::variant2::holds_alternative<crow::Response::string_response>(
+            res.response),
+        true);
 }
 TEST(http_response, headers)
 {
-    Response res;
+    crow::Response res;
     addHeaders(res);
     varifyHeaders(res);
 }
 TEST(http_response, stringbody)
 {
-    Response res;
+    crow::Response res;
     addHeaders(res);
     std::string_view bodyvalue = "this is my new body";
     res.write({bodyvalue.data(), bodyvalue.length()});
@@ -87,7 +87,7 @@ TEST(http_response, stringbody)
 }
 TEST(http_response, filebody)
 {
-    Response res;
+    crow::Response res;
     addHeaders(res);
     std::ofstream file;
     std::string_view s = "sample text";
@@ -98,14 +98,15 @@ TEST(http_response, filebody)
 
     res.openFile(path);
 
-    error_code ec{};
-    Response::file_response& bodyResp =
-        boost::variant2::get<Response::file_response>(res.response);
-    response_serializer<boost::beast::http::file_body> sr{bodyResp};
+    boost::beast::error_code ec{};
+    crow::Response::file_response& bodyResp =
+        boost::variant2::get<crow::Response::file_response>(res.response);
+    boost::beast::http::response_serializer<boost::beast::http::file_body> sr{
+        bodyResp};
     Lambda visit = writeMessage(sr, ec);
 
     // EXPECT_EQ(ec, 0);
-    const auto b = buffers_front(visit.buffer.data());
+    const auto b = boost::beast::buffers_front(visit.buffer.data());
     std::string_view s1{static_cast<char*>(b.data()), b.size()};
     EXPECT_EQ(s1, s);
     std::filesystem::remove(path);
@@ -114,7 +115,7 @@ TEST(http_response, filebody)
 }
 TEST(http_response, body_transitions)
 {
-    Response res;
+    crow::Response res;
     addHeaders(res);
     std::ofstream file;
     std::string_view s = "sample text";
@@ -125,16 +126,17 @@ TEST(http_response, body_transitions)
 
     res.openFile(path);
 
-    EXPECT_EQ(boost::variant2::holds_alternative<Response::file_response>(
+    EXPECT_EQ(boost::variant2::holds_alternative<crow::Response::file_response>(
                   res.response),
               true);
 
     varifyHeaders(res);
     res.write("body text");
 
-    EXPECT_EQ(boost::variant2::holds_alternative<Response::string_response>(
-                  res.response),
-              true);
+    EXPECT_EQ(
+        boost::variant2::holds_alternative<crow::Response::string_response>(
+            res.response),
+        true);
 
     varifyHeaders(res);
     std::filesystem::remove(path);

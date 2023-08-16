@@ -12,10 +12,7 @@
 #include <thread>
 
 #include "gtest/gtest.h"
-using namespace crow;
-using namespace boost::beast::http;
-using namespace boost::asio;
-using namespace boost::beast;
+
 namespace
 {
 
@@ -35,11 +32,11 @@ struct Router
     std::string root = "/tmp/";
     void validate() {}
     void handleUpgrade(
-        const Request& /*unused*/,
+        const crow::Request& /*unused*/,
         const std::shared_ptr<bmcweb::AsyncResp>& /*unused*/,
         boost::beast::ssl_stream<boost::asio::ip::tcp::socket>&& /*unused*/)
     {}
-    void handle(Request& req,
+    void handle(crow::Request& req,
                 const std::shared_ptr<bmcweb::AsyncResp>& asyncResp) const
     {
         asyncResp->res.addHeader("myheader", "myvalue");
