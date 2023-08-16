@@ -2,11 +2,11 @@
 #include "logging.hpp"
 #include "utils/hex_utils.hpp"
 
-#include <boost/beast/http/basic_dynamic_body.hpp>
-#include <boost/beast/http/buffer_body.hpp>
 #include <boost/beast/http/file_body.hpp>
 #include <boost/beast/http/message.hpp>
+#include <boost/beast/http/message_generator.hpp>
 #include <boost/beast/http/string_body.hpp>
+#include <boost/variant2/variant.hpp>
 #include <nlohmann/json.hpp>
 
 #include <optional>
@@ -19,51 +19,52 @@ namespace crow
 template <typename Adaptor, typename Handler>
 class Connection;
 
-inline void safeMove(auto callable)
-{
-    try
-    {
-        callable();
-    }
-    catch (std::bad_variant_access& /*unused*/)
-    {}
-}
+namespace http = boost::beast::http;
 
 struct Response
 {
     template <typename Adaptor, typename Handler>
     friend class crow::Connection;
-    using string_body_response_type =
-        boost::beast::http::response<boost::beast::http::string_body>;
-    using file_body_response_type =
-        boost::beast::http::response<boost::beast::http::file_body>;
 
-    using response_type =
-        std::variant<string_body_response_type, file_body_response_type>;
+    using string_response = http::response<http::string_body>;
+    using file_response = http::response<http::file_body>;
 
-    std::optional<response_type> genericResponse;
+    // Use boost variant2 because it doesn't have valueless by exception
+    boost::variant2::variant<string_response, file_response> response;
 
     nlohmann::json jsonValue;
+    using fields_type = http::header<false, http::fields>;
+    fields_type& fields()
+    {
+        return boost::variant2::visit(
+            [](auto&& r) -> fields_type& { return r.base(); }, response);
+    }
 
-    void addHeader(const std::string_view key, const std::string_view value)
+    const fields_type& fields() const
+    {
+        return boost::variant2::visit(
+            [](auto&& r) -> const fields_type& { return r.base(); }, response);
+    }
+
+    void addHeader(std::string_view key, std::string_view value)
     {
         fields().insert(key, value);
     }
 
-    void addHeader(boost::beast::http::field key, std::string_view value)
+    void addHeader(http::field key, std::string_view value)
     {
         fields().insert(key, value);
     }
-    void clearHeader(boost::beast::http::field key)
+
+    void clearHeader(http::field key)
     {
         fields().erase(key);
     }
 
-    Response() : genericResponse(string_body_response_type{}) {}
-
+    Response() : response(string_response()) {}
     Response(Response&& res) noexcept :
-        genericResponse(std::move(res.genericResponse)),
-        jsonValue(std::move(res.jsonValue)), completed(res.completed)
+        response(std::move(res.response)), jsonValue(std::move(res.jsonValue)),
+        completed(res.completed)
     {
         // See note in operator= move handler for why this is needed.
         if (!res.completed)
@@ -78,7 +79,6 @@ struct Response
     ~Response() = default;
 
     Response(const Response&) = delete;
-
     Response& operator=(const Response& r) = delete;
 
     Response& operator=(Response&& r) noexcept
@@ -89,10 +89,7 @@ struct Response
         {
             return *this;
         }
-        safeMove(
-            [this, &r]() { genericResponse = std::move(r.genericResponse); });
-
-        r.genericResponse.emplace(response_type{});
+        response = std::move(r.response);
         jsonValue = std::move(r.jsonValue);
 
         // Only need to move completion handler if not already completed
@@ -117,130 +114,61 @@ struct Response
 
     void result(unsigned v)
     {
-        string_body_response_type* sresp =
-            std::get_if<string_body_response_type>(&genericResponse.value());
-        if (sresp != nullptr)
-        {
-            return sresp->result(v);
-        }
-
-        file_body_response_type* fresp =
-            std::get_if<file_body_response_type>(&genericResponse.value());
-        return fresp->result(v);
+        fields().result(v);
     }
 
-    void result(boost::beast::http::status v)
+    void result(http::status v)
     {
-        string_body_response_type* sresp =
-            std::get_if<string_body_response_type>(&genericResponse.value());
-        if (sresp != nullptr)
-        {
-            return sresp->result(v);
-        }
-
-        file_body_response_type* fresp =
-            std::get_if<file_body_response_type>(&genericResponse.value());
-        return fresp->result(v);
+        fields().result(v);
     }
 
-    boost::beast::http::status result() const
+    void copyBody(const Response& res)
     {
-        const string_body_response_type* sresp =
-            std::get_if<string_body_response_type>(&genericResponse.value());
-        if (sresp != nullptr)
+        const string_response* s =
+            boost::variant2::get_if<string_response>(&(res.response));
+        if (s == nullptr)
         {
-            return sresp->result();
+            BMCWEB_LOG_ERROR("Unable to copy a file");
+            return;
         }
-        const file_body_response_type* fresp =
-            std::get_if<file_body_response_type>(&genericResponse.value());
-        return fresp->result();
+        string_response* myString =
+            boost::variant2::get_if<string_response>(&response);
+        if (myString == nullptr)
+        {
+            myString = &response.emplace<string_response>();
+        }
+        myString->body() = s->body();
+    }
+
+    http::status result() const
+    {
+        return fields().result();
     }
 
     unsigned resultInt() const
     {
-        const string_body_response_type* sresp =
-            std::get_if<string_body_response_type>(&genericResponse.value());
-        if (sresp != nullptr)
-        {
-            return sresp->result_int();
-        }
-        const file_body_response_type* fresp =
-            std::get_if<file_body_response_type>(&genericResponse.value());
-        return fresp->result_int();
+        return fields().result_int();
     }
 
     std::string_view reason() const
     {
-        const string_body_response_type* sresp =
-            std::get_if<string_body_response_type>(&genericResponse.value());
-        if (sresp != nullptr)
-        {
-            return sresp->reason();
-        }
-        const file_body_response_type* fresp =
-            std::get_if<file_body_response_type>(&genericResponse.value());
-        return fresp->reason();
+        return fields().reason();
     }
 
     bool isCompleted() const noexcept
     {
         return completed;
     }
-    boost::beast::http::header<false, boost::beast::http::fields>& fields()
+    
+    const std::string* body()
     {
-        string_body_response_type* sresp =
-            std::get_if<string_body_response_type>(&genericResponse.value());
-        if (sresp != nullptr)
+        string_response* body =
+            boost::variant2::get_if<string_response>(&response);
+        if (body == nullptr)
         {
-            return sresp->base();
+            return nullptr;
         }
-
-        file_body_response_type* fresp =
-            std::get_if<file_body_response_type>(&genericResponse.value());
-        return fresp->base();
-    }
-    const boost::beast::http::header<false, boost::beast::http::fields>&
-        fields() const
-    {
-        const string_body_response_type* sresp =
-            std::get_if<string_body_response_type>(&genericResponse.value());
-        if (sresp != nullptr)
-        {
-            return sresp->base();
-        }
-
-        const file_body_response_type* fresp =
-            std::get_if<file_body_response_type>(&genericResponse.value());
-        return fresp->base();
-    }
-    template <typename NewResponseType>
-    NewResponseType& updateResponseIfNeeded()
-    {
-        if (!std::holds_alternative<NewResponseType>(genericResponse.value()))
-        {
-            auto temp = std::move(fields());
-            return (*genericResponse).emplace<NewResponseType>(std::move(temp));
-        }
-        return std::get<NewResponseType>(*genericResponse);
-    }
-    std::string& body()
-    {
-        return updateResponseIfNeeded<string_body_response_type>().body();
-    }
-
-    bool openFile(const std::filesystem::path& path)
-    {
-        boost::beast::http::file_body::value_type file;
-        boost::beast::error_code ec;
-        file.open(path.c_str(), boost::beast::file_mode::scan, ec);
-        if (ec)
-        {
-            return false;
-        }
-        file_body_response_type& fileBodyRes =
-            updateResponseIfNeeded<file_body_response_type>();
-        fileBodyRes.body() = std::move(file);
-        return true;
+        return &body->body();
     }
 
     std::string_view getHeaderValue(std::string_view key) const
@@ -250,92 +178,63 @@ struct Response
 
     void keepAlive(bool k)
     {
-        string_body_response_type* sresp =
-            std::get_if<string_body_response_type>(&genericResponse.value());
-        if (sresp != nullptr)
-        {
-            return sresp->keep_alive(k);
-        }
-        file_body_response_type* fresp =
-            std::get_if<file_body_response_type>(&genericResponse.value());
-        return fresp->keep_alive(k);
+        return boost::variant2::visit([k](auto&& r) { r.keep_alive(k); },
+                                      response);
     }
 
     bool keepAlive() const
     {
-        const string_body_response_type* sresp =
-            std::get_if<string_body_response_type>(&genericResponse.value());
-        if (sresp != nullptr)
+        return boost::variant2::visit([](auto&& r) { return r.keep_alive(); },
+                                      response);
+    }
+
+    uint64_t getContentLength(boost::optional<uint64_t> pSize)
+    {
+        // This code is a throw-free equivalent to
+        // beast::http::message::prepare_payload
+        using http::status;
+        using http::status_class;
+        using http::to_status_class;
+        if (!pSize)
         {
-            return sresp->keep_alive();
+            return 0;
         }
-        const file_body_response_type* fresp =
-            std::get_if<file_body_response_type>(&genericResponse.value());
-        return fresp->keep_alive();
+        bool is1XXReturn = to_status_class(result()) ==
+                           status_class::informational;
+        if (*pSize > 0 && (is1XXReturn || result() == status::no_content ||
+                           result() == status::not_modified))
+        {
+            BMCWEB_LOG_CRITICAL("{} Response content provided but code was "
+                                "no-content or not_modified, which aren't "
+                                "allowed to have a body",
+                                logPtr(this));
+            return 0;
+        }
+        return *pSize;
     }
 
     void preparePayload()
     {
-        string_body_response_type* sresp =
-            std::get_if<string_body_response_type>(&genericResponse.value());
-        if (sresp != nullptr)
-        {
-            return sresp->content_length(
-                getContentLength(sresp->payload_size(), sresp->result()));
-        }
-        file_body_response_type* fresp =
-            std::get_if<file_body_response_type>(&genericResponse.value());
-        return fresp->content_length(
-            getContentLength(fresp->payload_size(), fresp->result()));
-    }
-    uint64_t getContentLength(boost::optional<uint64_t> pSize,
-                              boost::beast::http::status result)
-    {
-        // This code is a throw-free equivalent to
-        // beast::http::message::prepare_payload
-        using boost::beast::http::status;
-        using boost::beast::http::status_class;
-        using boost::beast::http::to_status_class;
-        if (!pSize)
-        {
-            pSize = 0;
-        }
-        else
-        {
-            bool is1XXReturn = to_status_class(result) ==
-                               status_class::informational;
-            if (*pSize > 0 && (is1XXReturn || result == status::no_content ||
-                               result == status::not_modified))
-            {
-                BMCWEB_LOG_CRITICAL(
-                    "{} Response content provided but code was no-content or not_modified, which aren't allowed to have a body",
-                    logPtr(this));
-                pSize = 0;
-                body().clear();
-            }
-        }
-        return *pSize;
+        boost::variant2::visit(
+            [this](auto&& r) {
+            r.content_length(getContentLength(r.payload_size()));
+            },
+            response);
     }
 
     void clear()
     {
         BMCWEB_LOG_DEBUG("{} Clearing response containers", logPtr(this));
-
-        genericResponse.emplace(string_body_response_type{});
-        jsonValue.clear();
+        response.emplace<string_response>();
+        jsonValue = nullptr;
         completed = false;
         expectedHash = std::nullopt;
-    }
-
-    void write(std::string_view bodyPart)
-    {
-        body() += std::string(bodyPart);
     }
 
     std::string computeEtag() const
     {
         // Only set etag if this request succeeded
-        if (result() != boost::beast::http::status::ok)
+        if (result() != http::status::ok)
         {
             return "";
         }
@@ -348,12 +247,24 @@ struct Response
         return "\"" + intToHexString(hashval, 8) + "\"";
     }
 
+    void write(std::string&& bodyPart)
+    {
+        string_response* str =
+            boost::variant2::get_if<string_response>(&response);
+        if (str != nullptr)
+        {
+            str->body() = std::move(bodyPart);
+            return;
+        }
+        response.emplace<string_response>(result(), 11, std::move(bodyPart));
+    }
+
     void end()
     {
         std::string etag = computeEtag();
         if (!etag.empty())
         {
-            addHeader(boost::beast::http::field::etag, etag);
+            addHeader(http::field::etag, etag);
         }
         if (completed)
         {
@@ -409,23 +320,49 @@ struct Response
     void setHashAndHandleNotModified()
     {
         // Can only hash if we have content that's valid
-        if (jsonValue.empty() || result() != boost::beast::http::status::ok)
+        if (jsonValue.empty() || result() != http::status::ok)
         {
             return;
         }
         size_t hashval = std::hash<nlohmann::json>{}(jsonValue);
         std::string hexVal = "\"" + intToHexString(hashval, 8) + "\"";
-        addHeader(boost::beast::http::field::etag, hexVal);
+        addHeader(http::field::etag, hexVal);
         if (expectedHash && hexVal == *expectedHash)
         {
             jsonValue = nullptr;
-            result(boost::beast::http::status::not_modified);
+            result(http::status::not_modified);
         }
     }
 
     void setExpectedHash(std::string_view hash)
     {
         expectedHash = hash;
+    }
+
+    using message_generator = http::message_generator;
+    message_generator generator()
+    {
+        return boost::variant2::visit(
+            [](auto& r) -> message_generator { return std::move(r); },
+            response);
+    }
+
+    bool openFile(const std::filesystem::path& path)
+    {
+        http::file_body::value_type file;
+        boost::beast::error_code ec;
+        file.open(path.c_str(), boost::beast::file_mode::read, ec);
+        if (ec)
+        {
+            return false;
+        }
+        // store the headers on stack temporarily so we can reconstruct the new
+        // base with the old headers copied in.
+        http::header<false> headTemp = std::move(fields());
+        file_response& fileResponse =
+            response.emplace<file_response>(std::move(headTemp));
+        fileResponse.body() = std::move(file);
+        return true;
     }
 
   private:

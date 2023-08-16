@@ -496,7 +496,8 @@ void dumpHtml(std::string &out, const nlohmann::json &json) {
 }
 
 void prettyPrintJson(crow::Response &res) {
-  json_html_util::dumpHtml(res.body(), res.jsonValue);
+  std::string v=*res.body();
+  json_html_util::dumpHtml(v, res.jsonValue);
 
   res.addHeader(boost::beast::http::field::content_type,
                 "text/html;charset=UTF-8");

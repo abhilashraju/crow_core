@@ -27,7 +27,7 @@ struct Router {
     boost::beast::http::response<boost::beast::http::file_body> res{
         std::piecewise_construct, std::make_tuple(std::move(body)),
         std::make_tuple(boost::beast::http::status::ok, req.version())};
-    asyncResp->res.genericResponse.emplace(std::move(res));
+    // asyncResp->res.response.emplace(std::move(res));
   }
 };
 int main(int argc, const char *argv[]) {
