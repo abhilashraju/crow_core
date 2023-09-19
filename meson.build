@@ -36,7 +36,7 @@ if get_option('enable-tests')
 endif
 executable(
   'crow_core',
-  ['crow_core.cpp','boost_url.cpp','json_html_serializer.cpp'],
+  ['http_client.cpp','boost_url.cpp'],
   include_directories: core_includes,
   dependencies:[boost_dep,json_dep,openssl_dep,crow_core_dependencies],
   install: true,
