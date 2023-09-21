@@ -21,10 +21,7 @@ using tcp = boost::asio::ip::tcp; // from <boost/asio/ip/tcp.hpp>
 //------------------------------------------------------------------------------
 
 // Report a failure
-void fail(beast::error_code ec, const char* what)
-{
-    std::cerr << what << ": " << ec.message() << "\n";
-}
+
 template <typename Stream>
 struct SyncStream : public std::enable_shared_from_this<SyncStream<Stream>>
 {
@@ -32,6 +29,8 @@ struct SyncStream : public std::enable_shared_from_this<SyncStream<Stream>>
     Stream mStream;
 
   protected:
+    using ErrorHandler = std::function<void(beast::error_code, const char*)>;
+    ErrorHandler fail;
     SyncStream(Stream&& strm) : mStream(std::move(strm)) {}
     auto& lowestLayer()
     {
@@ -46,6 +45,10 @@ struct SyncStream : public std::enable_shared_from_this<SyncStream<Stream>>
                    tcp::resolver::results_type results) = 0;
 
   public:
+    void setErrorHandler(ErrorHandler handler)
+    {
+        fail = std::move(handler);
+    }
     void resolve(tcp::resolver& resolver, const char* host, const char* port,
                  std::function<void(beast::error_code)> handler)
     {
@@ -170,6 +173,8 @@ struct ASyncStream : public std::enable_shared_from_this<ASyncStream<Stream>>
     Stream mStream;
 
   protected:
+    using ErrorHandler = std::function<void(beast::error_code, const char*)>;
+    ErrorHandler fail;
     ASyncStream(Stream&& strm) : mStream(std::move(strm)) {}
     auto& lowestLayer()
     {
@@ -218,6 +223,10 @@ struct ASyncStream : public std::enable_shared_from_this<ASyncStream<Stream>>
     }
 
   public:
+    void setErrorHandler(ErrorHandler handler)
+    {
+        fail = std::move(handler);
+    }
     void resolve(tcp::resolver& resolver, const char* host, const char* port,
                  std::function<void(beast::error_code)> handler)
     {
@@ -327,54 +336,97 @@ struct ASyncSslStream : public ASyncStream<beast::ssl_stream<beast::tcp_stream>>
     }
 };
 // Performs an HTTP GET and prints the response
-template <typename Stream>
-class session : public std::enable_shared_from_this<session<Stream>>
+template <typename Stream, typename ReqBody = http::empty_body,
+          typename ResBody = http::string_body>
+class HttpSession : public std::enable_shared_from_this<HttpSession<Stream>>
 {
-    using Base = std::enable_shared_from_this<session<Stream>>;
+  private:
+    using Base = std::enable_shared_from_this<HttpSession<Stream>>;
     tcp::resolver resolver_;
     std::shared_ptr<Stream> stream;
     beast::flat_buffer buffer_; // (Must persist between reads)
-    http::request<http::empty_body> req_;
-    http::response<http::string_body> res_;
+    http::request<ReqBody> req_;
+    http::response<ResBody> res_;
+    using ResponseHandler =
+        std::function<void(const http::response<http::string_body>&)>;
+
+    ResponseHandler resonseHandler;
+    bool keepAlive{false};
+    HttpSession(net::any_io_executor ex, Stream&& astream) :
+        resolver_(ex), stream(std::make_shared<Stream>(std::move(astream)))
+    {
+        stream->setErrorHandler([this](beast::error_code ec, const char* what) {
+            std::cerr << what << ": " << ec.message() << "\n";
+            if (resonseHandler)
+            {
+                http::response<http::string_body> res{http::status::not_found,
+                                                      11};
+                res.body() = "Client Error";
+                resonseHandler(res);
+            }
+        });
+    }
 
   public:
-    explicit session(net::any_io_executor ex, Stream&& astream) :
-        resolver_(ex), stream(std::make_shared<Stream>(std::move(astream)))
-    {}
-
+    [[nodiscard]] static std::shared_ptr<HttpSession<Stream>>
+        create(net::any_io_executor ex, Stream&& astream)
+    {
+        return std::shared_ptr<HttpSession<Stream>>(
+            new HttpSession<Stream>(ex, std::move(astream)));
+    }
+    void setBody(ReqBody body)
+    {
+        req_.body() = std::move(body);
+    }
+    void setTarget(const char* target)
+    {
+        req_.target(target);
+    }
+    void close()
+    {
+        stream->shutDown();
+    }
     // Start the asynchronous operation
     void run(const char* host, const char* port, const char* target,
-             int version)
+             http::verb v, int version, bool aKeepAlive = false)
     {
-        // Set SNI Hostname (many hosts need this to handshake
-        // successfully)
-
-        // Set up an HTTP GET request message
+        keepAlive = aKeepAlive;
         req_.version(version);
-        req_.method(http::verb::get);
+        req_.method(v);
         req_.target(target);
         req_.set(http::field::host, host);
         req_.set(http::field::user_agent, BOOST_BEAST_VERSION_STRING);
+        req_.keep_alive(keepAlive);
 
-        stream->resolve(
-            resolver_, host, port,
-            std::bind_front(&session::on_connect, Base::shared_from_this()));
+        stream->resolve(resolver_, host, port,
+                        std::bind_front(&HttpSession::on_connect,
+                                        Base::shared_from_this()));
     }
     void on_connect(beast::error_code ec)
     {
-        stream->write(req_, std::bind_front(&session::on_write,
+        stream->write(req_, std::bind_front(&HttpSession::on_write,
                                             Base::shared_from_this()));
     }
     void on_write(beast::error_code ec, std::size_t bytes_transferred)
     {
         stream->read(
             buffer_, res_,
-            std::bind_front(&session::on_read, Base::shared_from_this()));
+            std::bind_front(&HttpSession::on_read, Base::shared_from_this()));
     }
     void on_read(beast::error_code ec, std::size_t bytes_transferred)
     {
-        // Write the message to standard out
-        std::cout << res_ << std::endl;
-        stream->shutDown();
+        if (resonseHandler)
+        {
+            resonseHandler(res_);
+        }
+        res_ = http::response<ResBody>{};
+        if (!keepAlive)
+        {
+            stream->shutDown();
+        }
+    }
+    void setResponseHandler(ResponseHandler handler)
+    {
+        resonseHandler = std::move(handler);
     }
 };

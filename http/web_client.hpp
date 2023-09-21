@@ -1,0 +1,136 @@
+#pragma once
+#include "http_client.hpp"
+
+#include <boost/url/url.hpp>
+#include <boost/url/url_view.hpp>
+
+#include <numeric>
+#include <ranges>
+template <typename T>
+struct FluxBase
+{
+    struct SourceHandler
+    {
+        virtual void next(std::function<void(T)> consumer) = 0;
+        virtual bool hasNext() const = 0;
+    };
+    using Handler = std::function<void(const T&)>;
+
+  protected:
+    explicit FluxBase(SourceHandler* srcHandler) : mSource(srcHandler) {}
+    std::unique_ptr<SourceHandler> mSource{};
+    std::function<void()> onFinishHandler{};
+    std::vector<std::function<T(T)>> mapHandlers{};
+
+  public:
+    void subscribe(Handler handler)
+    {
+        if (mSource->hasNext())
+        {
+            mSource->next([handler = std::move(handler), this](T v) {
+                auto r = std::accumulate(begin(mapHandlers), end(mapHandlers),
+                                         v, [](auto sofar, auto& func) {
+                                             return func(std::move(sofar));
+                                         });
+                handler(r);
+                subscribe(std::move(handler));
+            });
+            return;
+        }
+        if (onFinishHandler)
+        {
+            onFinishHandler();
+        }
+    }
+    FluxBase& onFinish(std::function<void()> finishH)
+    {
+        onFinishHandler = std::move(finishH);
+        return *this;
+    }
+    FluxBase& map(std::function<T(T)> mapFun)
+    {
+        mapHandlers.push_back(std::move(mapFun));
+        return *this;
+    }
+};
+template <typename T>
+struct Mono : FluxBase<T>
+{
+    using Base = FluxBase<T>;
+    struct Just : Base::SourceHandler
+    {
+        T value{};
+        bool mHasNext{true};
+        explicit Just(T v) : value(std::move(v)) {}
+        void next(std::function<void(T)> consumer) override
+        {
+            mHasNext = false;
+            consumer(std::move(value));
+        }
+        bool hasNext() const override
+        {
+            return mHasNext;
+        }
+    };
+    template <typename Session>
+    struct HttpSource : Base::SourceHandler
+    {
+        bool mHasNext{true};
+        std::shared_ptr<Session> session;
+        std::string url;
+        http::verb verb;
+        explicit HttpSource(std::shared_ptr<Session> aSession) :
+            session(std::move(aSession))
+        {}
+        void setUrl(std::string u)
+        {
+            url = std::move(u);
+        }
+        void setVerb(http::verb v)
+        {
+            verb = v;
+        }
+
+        void next(std::function<void(T)> consumer) override
+        {
+            mHasNext = false;
+            session->setResponseHandler(
+                [consumer = std::move(consumer)](
+                    const http::response<http::string_body>& res) {
+                consumer(res.body());
+            });
+            boost::urls::url_view urlvw(url);
+            std::string h = urlvw.host();
+            std::string p = urlvw.port();
+            std::string path = urlvw.path();
+
+            session->run(h.data(), p.data(), path.data(), verb, 11);
+        }
+        bool hasNext() const override
+        {
+            return mHasNext;
+        }
+    };
+    template <typename Session>
+    HttpSource(std::shared_ptr<Session>) -> HttpSource<Session>;
+
+    explicit Mono(Base::SourceHandler* srcHandler) : Base(srcHandler) {}
+
+    static Mono just(T v)
+    {
+        return Mono{new Just(std::move(v))};
+    }
+    template <typename Stream>
+    static Mono connect(std::shared_ptr<HttpSession<Stream>> session,
+                        const std::string& url)
+    {
+        auto src = new HttpSource(session);
+        src->setUrl(url);
+        src->setVerb(http::verb::get);
+        auto m = Mono{src};
+        return m;
+    }
+};
+
+struct WebClient
+{};

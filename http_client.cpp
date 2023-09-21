@@ -1,4 +1,6 @@
 #include "http/http_client.hpp"
+
+#include "http/web_client.hpp"
 int main(int argc, char** argv)
 {
     // Check command line arguments.
@@ -27,13 +29,25 @@ int main(int argc, char** argv)
 
     // Verify the remote server's certificate
     ctx.set_verify_mode(ssl::verify_none);
-
+    auto m = Mono<int>::just(10);
+    m.subscribe([](auto v) { std::cout << v << std::endl; });
+    auto m2 = Mono<std::string>::just("hello");
+    m2.map([](auto&& v) { return v + " world"; })
+        .map([](auto&& v) { return v + " example"; })
+        .onFinish([]() { std::cout << "end of stream\n"; })
+        .subscribe([](auto v) { std::cout << v << std::endl; });
     // Launch the asynchronous operation
     // The session is constructed with a strand to
     // ensure that handlers do not execute concurrently.
     auto ex = net::make_strand(ioc);
-    std::make_shared<session<ASyncSslStream>>(ex, ASyncSslStream(ex, ctx))
-        ->run(host, port, target, version);
+    // std::make_shared<HttpSession<ASyncSslStream>>(ex, ASyncSslStream(ex,
+    // ctx))
+    //     ->run(host, port, target, http::verb::get, version);
+    auto session = HttpSession<ASyncSslStream>::create(ex,
+                                                       ASyncSslStream(ex, ctx));
+    auto m3 = Mono<std::string>::connect(session,
+                                         "https://127.0.0.1:8443/machines");
+    m3.subscribe([](auto v) { std::cout << v << std::endl; });
 
     // Run the I/O service. The call will return when
     // the get operation is complete.
