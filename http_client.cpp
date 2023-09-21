@@ -30,7 +30,11 @@ int main(int argc, char** argv)
     // Verify the remote server's certificate
     ctx.set_verify_mode(ssl::verify_none);
     auto m = Mono<int>::just(10);
-    m.subscribe([](auto v) { std::cout << v << std::endl; });
+
+    m.subscribe([](auto v, auto&& token) {
+        std::cout << v << std::endl;
+        token();
+    });
     auto m2 = Mono<std::string>::just("hello");
     m2.map([](auto&& v) { return v + " world"; })
         .map([](auto&& v) { return v + " example"; })
@@ -47,10 +51,13 @@ int main(int argc, char** argv)
                                                        ASyncSslStream(ex, ctx));
     auto m3 = Mono<std::string>::connect(session,
                                          "https://127.0.0.1:8443/machines");
-    m3.subscribe([](auto v) { std::cout << v << std::endl; });
 
-    // Run the I/O service. The call will return when
-    // the get operation is complete.
+    m3.subscribe([](auto v, auto&& token) {
+        std::cout << v << std::endl;
+        token();
+    });
+
+    std::cout << session->inUse() << std::endl;
     ioc.run();
 
     return EXIT_SUCCESS;

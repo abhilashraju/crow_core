@@ -14,7 +14,11 @@ struct FluxBase
         virtual void next(std::function<void(T)> consumer) = 0;
         virtual bool hasNext() const = 0;
     };
+    using CompletionToken = std::function<void()>;
+
     using Handler = std::function<void(const T&)>;
+    using HandlerWithCompletionToken =
+        std::function<void(const T&, CompletionToken&&)>;
 
   protected:
     explicit FluxBase(SourceHandler* srcHandler) : mSource(srcHandler) {}
@@ -42,6 +46,26 @@ struct FluxBase
             onFinishHandler();
         }
     }
+    void subscribe(HandlerWithCompletionToken handler)
+    {
+        if (mSource->hasNext())
+        {
+            mSource->next([handler = std::move(handler), this](T v) {
+                auto r = std::accumulate(begin(mapHandlers), end(mapHandlers),
+                                         v, [](auto sofar, auto& func) {
+                                             return func(std::move(sofar));
+                                         });
+                handler(r, [this, handler = std::move(handler)] {
+                    subscribe(std::move(handler));
+                });
+            });
+            return;
+        }
+        if (onFinishHandler)
+        {
+            onFinishHandler();
+        }
+    }
     FluxBase& onFinish(std::function<void()> finishH)
     {
         onFinishHandler = std::move(finishH);
@@ -53,6 +77,49 @@ struct FluxBase
         return *this;
     }
 };
+
+template <typename T, typename Session>
+struct HttpSource : FluxBase<T>::SourceHandler
+{
+    int count{1};
+    std::shared_ptr<Session> session;
+    std::string url;
+    http::verb verb;
+    explicit HttpSource(std::shared_ptr<Session> aSession, int shots) :
+        session(std::move(aSession)), count(shots)
+    {}
+    void setUrl(std::string u)
+    {
+        url = std::move(u);
+    }
+    void setVerb(http::verb v)
+    {
+        verb = v;
+    }
+
+    void next(std::function<void(T)> consumer) override
+    {
+        count--;
+        session->setResponseHandler(
+            [consumer = std::move(consumer)](
+                const http::response<http::string_body>& res) {
+            consumer(res.body());
+        });
+        boost::urls::url_view urlvw(url);
+        std::string h = urlvw.host();
+        std::string p = urlvw.port();
+        std::string path = urlvw.path();
+        session->setOptions(Host{h}, Port{p}, Target{path}, Version{11},
+                            Verb{verb}, KeepAlive{true});
+        session->run();
+    }
+    bool hasNext() const override
+    {
+        return count > 0;
+    }
+};
+// template <typename T, typename Session>
+// HttpSource(std::shared_ptr<Session>, int) -> HttpSource<T, Session>;
 template <typename T>
 struct Mono : FluxBase<T>
 {
@@ -72,47 +139,6 @@ struct Mono : FluxBase<T>
             return mHasNext;
         }
     };
-    template <typename Session>
-    struct HttpSource : Base::SourceHandler
-    {
-        bool mHasNext{true};
-        std::shared_ptr<Session> session;
-        std::string url;
-        http::verb verb;
-        explicit HttpSource(std::shared_ptr<Session> aSession) :
-            session(std::move(aSession))
-        {}
-        void setUrl(std::string u)
-        {
-            url = std::move(u);
-        }
-        void setVerb(http::verb v)
-        {
-            verb = v;
-        }
-
-        void next(std::function<void(T)> consumer) override
-        {
-            mHasNext = false;
-            session->setResponseHandler(
-                [consumer = std::move(consumer)](
-                    const http::response<http::string_body>& res) {
-                consumer(res.body());
-            });
-            boost::urls::url_view urlvw(url);
-            std::string h = urlvw.host();
-            std::string p = urlvw.port();
-            std::string path = urlvw.path();
-
-            session->run(h.data(), p.data(), path.data(), verb, 11);
-        }
-        bool hasNext() const override
-        {
-            return mHasNext;
-        }
-    };
-    template <typename Session>
-    HttpSource(std::shared_ptr<Session>) -> HttpSource<Session>;
 
     explicit Mono(Base::SourceHandler* srcHandler) : Base(srcHandler) {}
 
@@ -124,7 +150,7 @@ struct Mono : FluxBase<T>
     static Mono connect(std::shared_ptr<HttpSession<Stream>> session,
                         const std::string& url)
     {
-        auto src = new HttpSource(session);
+        auto src = new HttpSource<T, HttpSession<Stream>>(session, 2);
         src->setUrl(url);
         src->setVerb(http::verb::get);
         auto m = Mono{src};

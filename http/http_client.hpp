@@ -1,5 +1,7 @@
 
 #pragma once
+#include "http_types.hpp"
+
 #include <boost/asio/strand.hpp>
 #include <boost/beast/core.hpp>
 #include <boost/beast/http.hpp>
@@ -340,6 +342,58 @@ template <typename Stream, typename ReqBody = http::empty_body,
           typename ResBody = http::string_body>
 class HttpSession : public std::enable_shared_from_this<HttpSession<Stream>>
 {
+    struct InUse
+    {
+        std::shared_ptr<HttpSession> session;
+        InUse(std::shared_ptr<HttpSession> sess) : session(std::move(sess)) {}
+        void resolve() {}
+        void write() {}
+        void read() {}
+    };
+    struct Idle
+    {
+        std::shared_ptr<HttpSession> session;
+        Idle(std::shared_ptr<HttpSession> sess) : session(std::move(sess)) {}
+        void resolve() {}
+        void write()
+        {
+            session->connectionState = InUse(session->shared_from_this());
+            session->stream->write(
+                session->req_, std::bind_front(&HttpSession::on_write,
+                                               session->shared_from_this()));
+        }
+        void read()
+        {
+            session->connectionState = InUse(session->shared_from_this());
+            session->stream->read(session->buffer_, session->res_,
+                                  std::bind_front(&HttpSession::on_read,
+                                                  session->shared_from_this()));
+        }
+    };
+    struct Disconnected
+    {
+        std::shared_ptr<HttpSession> session;
+        Disconnected(std::shared_ptr<HttpSession> sess) :
+            session(std::move(sess))
+        {}
+        void resolve()
+        {
+            session->connectionState = InUse(session->shared_from_this());
+            session->stream->resolve(
+                session->resolver_, session->host.data(), session->port.data(),
+                std::bind_front(&HttpSession::on_connect,
+                                session->shared_from_this()));
+        }
+        void write()
+        {
+            resolve();
+        }
+        void read()
+        {
+            resolve();
+        }
+    };
+
   private:
     using Base = std::enable_shared_from_this<HttpSession<Stream>>;
     tcp::resolver resolver_;
@@ -351,6 +405,9 @@ class HttpSession : public std::enable_shared_from_this<HttpSession<Stream>>
         std::function<void(const http::response<http::string_body>&)>;
 
     ResponseHandler resonseHandler;
+    std::string host;
+    std::string port;
+    std::variant<std::monostate, InUse, Idle, Disconnected> connectionState;
     bool keepAlive{false};
     HttpSession(net::any_io_executor ex, Stream&& astream) :
         resolver_(ex), stream(std::make_shared<Stream>(std::move(astream)))
@@ -374,44 +431,88 @@ class HttpSession : public std::enable_shared_from_this<HttpSession<Stream>>
         return std::shared_ptr<HttpSession<Stream>>(
             new HttpSession<Stream>(ex, std::move(astream)));
     }
-    void setBody(ReqBody body)
+    void setOption(ReqBody body)
     {
         req_.body() = std::move(body);
     }
-    void setTarget(const char* target)
+    void setOption(Target t)
     {
-        req_.target(target);
+        req_.target(t.target.data());
+    }
+    void setOption(Port p)
+    {
+        port = p;
+    }
+    void setOption(Host h)
+    {
+        host = h;
+    }
+    void setOption(Verb v)
+    {
+        req_.method(v);
+    }
+    void setOption(Version v)
+    {
+        req_.version(v);
+    }
+    void setOption(KeepAlive k)
+    {
+        keepAlive = k;
+    }
+    template <typename... Options>
+    void setOptions(Options... opts)
+    {
+        (setOption(opts), ..., 1);
     }
     void close()
     {
         stream->shutDown();
     }
-    // Start the asynchronous operation
-    void run(const char* host, const char* port, const char* target,
-             http::verb v, int version, bool aKeepAlive = false)
+    void visit(auto&& handler)
     {
-        keepAlive = aKeepAlive;
-        req_.version(version);
-        req_.method(v);
-        req_.target(target);
-        req_.set(http::field::host, host);
-        req_.set(http::field::user_agent, BOOST_BEAST_VERSION_STRING);
-        req_.keep_alive(keepAlive);
-
-        stream->resolve(resolver_, host, port,
-                        std::bind_front(&HttpSession::on_connect,
-                                        Base::shared_from_this()));
+        std::visit(
+            [&](auto&& state) {
+            using Type = std::decay_t<decltype(state)>;
+            if constexpr (!std::is_same_v<std::monostate, Type>)
+            {
+                handler(state);
+            }
+            },
+            connectionState);
+    }
+    // Start the asynchronous operation
+    void run()
+    {
+        if (std::holds_alternative<std::monostate>(connectionState))
+        {
+            req_.set(http::field::host, host);
+            req_.set(http::field::user_agent, BOOST_BEAST_VERSION_STRING);
+            req_.keep_alive(keepAlive);
+            connectionState = Disconnected(Base::shared_from_this());
+            visit([](auto& state) { state.resolve(); });
+            return;
+        }
+        visit([](auto& state) { state.write(); });
     }
     void on_connect(beast::error_code ec)
     {
-        stream->write(req_, std::bind_front(&HttpSession::on_write,
-                                            Base::shared_from_this()));
+        connectionState = Idle(Base::shared_from_this());
+        write();
+        // stream->write(req_, std::bind_front(&HttpSession::on_write,
+        //                                     Base::shared_from_this()));
+    }
+    void write()
+    {
+        visit([](auto& state) { state.write(); });
     }
     void on_write(beast::error_code ec, std::size_t bytes_transferred)
     {
-        stream->read(
-            buffer_, res_,
-            std::bind_front(&HttpSession::on_read, Base::shared_from_this()));
+        connectionState = Idle(Base::shared_from_this());
+        read();
+    }
+    void read()
+    {
+        visit([](auto& state) { state.read(); });
     }
     void on_read(beast::error_code ec, std::size_t bytes_transferred)
     {
@@ -422,8 +523,16 @@ class HttpSession : public std::enable_shared_from_this<HttpSession<Stream>>
         res_ = http::response<ResBody>{};
         if (!keepAlive)
         {
+            connectionState = std::monostate();
             stream->shutDown();
+            return;
         }
+        res_.keep_alive(keepAlive);
+        connectionState = Idle(Base::shared_from_this());
+    }
+    bool inUse() const
+    {
+        return std::holds_alternative<InUse>(connectionState);
     }
     void setResponseHandler(ResponseHandler handler)
     {
