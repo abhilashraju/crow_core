@@ -25,6 +25,7 @@ struct FluxBase
     std::unique_ptr<SourceHandler> mSource{};
     std::function<void()> onFinishHandler{};
     std::vector<std::function<T(T)>> mapHandlers{};
+    std::function<void(T, std::function<void()>)> subscriber;
 
   public:
     void subscribe(Handler handler)
@@ -46,8 +47,9 @@ struct FluxBase
             onFinishHandler();
         }
     }
-    void subscribe(HandlerWithCompletionToken handler)
+    void subscribe(auto handler)
     {
+        subscriber = std::move(handler);
         if (mSource->hasNext())
         {
             mSource->next([handler = std::move(handler), this](T v) {
@@ -55,9 +57,7 @@ struct FluxBase
                                          v, [](auto sofar, auto& func) {
                                              return func(std::move(sofar));
                                          });
-                handler(r, [this, handler = std::move(handler)] {
-                    subscribe(std::move(handler));
-                });
+                subscriber(r, [this] { subscribe(std::move(subscriber)); });
             });
             return;
         }
@@ -118,6 +118,50 @@ struct HttpSource : FluxBase<T>::SourceHandler
         return count > 0;
     }
 };
+
+template <typename T, typename Session>
+struct HttpSink
+{
+    std::shared_ptr<Session> session;
+    std::string url;
+    http::verb verb;
+    std::string data;
+    explicit HttpSink(std::shared_ptr<Session> aSession) :
+        session(std::move(aSession))
+    {}
+    void setUrl(std::string u)
+    {
+        url = std::move(u);
+    }
+    void setVerb(http::verb v)
+    {
+        verb = v;
+    }
+    void setData(std::string d)
+    {
+        data = std::move(d);
+    }
+
+    void operator()(T&& data, auto&& token)
+    {
+        session->setResponseHandler(
+            [token = std::move(token)](
+                const http::response<http::string_body>& res) {
+            std::cout << res;
+            token();
+        });
+        boost::urls::url_view urlvw(url);
+        std::string h = urlvw.host();
+        std::string p = urlvw.port();
+        std::string path = urlvw.path();
+        http::string_body::value_type body(data);
+
+        session->setOptions(Host{h}, Port{p}, Target{path}, Version{11},
+                            Verb{http::verb::post}, KeepAlive{true}, body,
+                            ContentType{"plain/text"});
+        session->run();
+    }
+};
 // template <typename T, typename Session>
 // HttpSource(std::shared_ptr<Session>, int) -> HttpSource<T, Session>;
 template <typename T>
@@ -147,10 +191,15 @@ struct Mono : FluxBase<T>
         return Mono{new Just(std::move(v))};
     }
     template <typename Stream>
-    static Mono connect(std::shared_ptr<HttpSession<Stream>> session,
-                        const std::string& url)
+    static Mono
+        connect(std::shared_ptr<
+                    HttpSession<Stream, http::empty_body, http::string_body>>
+                    session,
+                const std::string& url)
     {
-        auto src = new HttpSource<T, HttpSession<Stream>>(session, 2);
+        auto src = new HttpSource<
+            T, HttpSession<Stream, http::empty_body, http::string_body>>(
+            session, 1);
         src->setUrl(url);
         src->setVerb(http::verb::get);
         auto m = Mono{src};

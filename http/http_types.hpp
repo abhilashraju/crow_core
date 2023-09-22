@@ -50,3 +50,11 @@ struct KeepAlive
         return b;
     }
 };
+struct ContentType
+{
+    std::string type;
+    operator std::string() const
+    {
+        return type;
+    }
+};

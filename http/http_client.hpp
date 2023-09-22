@@ -338,9 +338,9 @@ struct ASyncSslStream : public ASyncStream<beast::ssl_stream<beast::tcp_stream>>
     }
 };
 // Performs an HTTP GET and prints the response
-template <typename Stream, typename ReqBody = http::empty_body,
-          typename ResBody = http::string_body>
-class HttpSession : public std::enable_shared_from_this<HttpSession<Stream>>
+template <typename Stream, typename ReqBody, typename ResBody>
+class HttpSession :
+    public std::enable_shared_from_this<HttpSession<Stream, ReqBody, ResBody>>
 {
     struct InUse
     {
@@ -395,7 +395,8 @@ class HttpSession : public std::enable_shared_from_this<HttpSession<Stream>>
     };
 
   private:
-    using Base = std::enable_shared_from_this<HttpSession<Stream>>;
+    using Base =
+        std::enable_shared_from_this<HttpSession<Stream, ReqBody, ResBody>>;
     tcp::resolver resolver_;
     std::shared_ptr<Stream> stream;
     beast::flat_buffer buffer_; // (Must persist between reads)
@@ -425,15 +426,16 @@ class HttpSession : public std::enable_shared_from_this<HttpSession<Stream>>
     }
 
   public:
-    [[nodiscard]] static std::shared_ptr<HttpSession<Stream>>
+    [[nodiscard]] static std::shared_ptr<HttpSession<Stream, ReqBody, ResBody>>
         create(net::any_io_executor ex, Stream&& astream)
     {
-        return std::shared_ptr<HttpSession<Stream>>(
-            new HttpSession<Stream>(ex, std::move(astream)));
+        return std::shared_ptr<HttpSession<Stream, ReqBody, ResBody>>(
+            new HttpSession<Stream, ReqBody, ResBody>(ex, std::move(astream)));
     }
-    void setOption(ReqBody body)
+    void setOption(ReqBody::value_type body)
     {
         req_.body() = std::move(body);
+        req_.prepare_payload();
     }
     void setOption(Target t)
     {
@@ -458,6 +460,10 @@ class HttpSession : public std::enable_shared_from_this<HttpSession<Stream>>
     void setOption(KeepAlive k)
     {
         keepAlive = k;
+    }
+    void setOption(ContentType t)
+    {
+        req_.set(http::field::content_type, t.type.data());
     }
     template <typename... Options>
     void setOptions(Options... opts)

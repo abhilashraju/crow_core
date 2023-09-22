@@ -1,6 +1,14 @@
 #include "http/http_client.hpp"
 
 #include "http/web_client.hpp"
+struct Sink
+{
+    void operator()(auto&& data, auto&& token) const
+    {
+        std::cout << data;
+        token();
+    }
+};
 int main(int argc, char** argv)
 {
     // Check command line arguments.
@@ -35,11 +43,15 @@ int main(int argc, char** argv)
         std::cout << v << std::endl;
         token();
     });
+
     auto m2 = Mono<std::string>::just("hello");
     m2.map([](auto&& v) { return v + " world"; })
         .map([](auto&& v) { return v + " example"; })
         .onFinish([]() { std::cout << "end of stream\n"; })
-        .subscribe([](auto v) { std::cout << v << std::endl; });
+        .subscribe([](auto v, auto token) {
+            std::cout << v << std::endl;
+            token();
+        });
     // Launch the asynchronous operation
     // The session is constructed with a strand to
     // ensure that handlers do not execute concurrently.
@@ -47,15 +59,26 @@ int main(int argc, char** argv)
     // std::make_shared<HttpSession<ASyncSslStream>>(ex, ASyncSslStream(ex,
     // ctx))
     //     ->run(host, port, target, http::verb::get, version);
-    auto session = HttpSession<ASyncSslStream>::create(ex,
-                                                       ASyncSslStream(ex, ctx));
+    using SourceSession =
+        HttpSession<ASyncSslStream, http::empty_body, http::string_body>;
+    std::shared_ptr<SourceSession> session =
+        SourceSession::create(ex, ASyncSslStream(ex, ctx));
     auto m3 = Mono<std::string>::connect(session,
                                          "https://127.0.0.1:8443/machines");
+    using SinkSession =
+        HttpSession<ASyncSslStream, http::string_body, http::string_body>;
+    std::shared_ptr<SinkSession> sinksession =
+        SinkSession::create(ex, ASyncSslStream(ex, ctx));
+    HttpSink<std::string, SinkSession> sink(sinksession);
+    sink.setUrl("https://127.0.0.1:8443/test");
+    sink.setVerb(http::verb::post);
 
     m3.subscribe([](auto v, auto&& token) {
         std::cout << v << std::endl;
         token();
     });
+
+    m3.subscribe(std::move(sink));
 
     std::cout << session->inUse() << std::endl;
     ioc.run();
