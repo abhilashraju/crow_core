@@ -28,7 +28,7 @@ int main(int argc, char** argv)
 
     m.subscribe([](auto v, auto&& requestNext) {
         std::cout << v << std::endl;
-        requestNext();
+        requestNext(true);
     });
 
     auto m2 = Flux<std::pair<std::string, std::string>>::range(
@@ -61,11 +61,9 @@ int main(int argc, char** argv)
     using SinkSession = HttpSession<AsyncSslStream, http::string_body>;
     auto sinksession = SinkSession::create(ex, AsyncSslStream(ex, ctx));
     HttpSink<std::string, SinkSession> sink(sinksession);
-    sink.setUrl("https://127.0.0.1:8443/test");
-    m3.subscribe([](auto v, auto&& token) {
-        std::cout << v << std::endl;
-        token();
-    });
+    sink.setUrl("https://127.0.0.1:8443/test")
+        .onData(
+            [](auto& res, bool& needNext) { std::cout << res << std::endl; });
 
     m3.subscribe(std::move(sink));
 

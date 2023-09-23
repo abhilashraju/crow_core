@@ -427,6 +427,8 @@ class HttpSession :
     }
 
   public:
+    using ResponseBody = ResBody;
+    using RequestBody = ReqBody;
     [[nodiscard]] static std::shared_ptr<HttpSession<Stream, ReqBody, ResBody>>
         create(net::any_io_executor ex, Stream&& astream)
     {

@@ -14,7 +14,7 @@ struct FluxBase
         virtual void next(std::function<void(T)> consumer) = 0;
         virtual bool hasNext() const = 0;
     };
-    using CompletionToken = std::function<void()>;
+    using CompletionToken = std::function<void(bool)>;
 
     using AsyncSubscriber = std::function<void(T, CompletionToken&&)>;
     using SyncSubscriber = std::function<void(T)>;
@@ -27,8 +27,11 @@ struct FluxBase
     std::variant<SyncSubscriber, AsyncSubscriber> subscriber;
     void invokeSubscriber(T& r, AsyncSubscriber& handler)
     {
-        handler(std::move(r), [this] {
-            subscribe(std::move(std::get<AsyncSubscriber>(subscriber)));
+        handler(std::move(r), [this](bool next) {
+            if (next)
+            {
+                subscribe(std::move(std::get<AsyncSubscriber>(subscriber)));
+            }
         });
     }
     void invokeSubscriber(T& r, SyncSubscriber& handler)
@@ -130,33 +133,35 @@ template <typename T,
           typename Session = HttpSession<AsyncSslStream, http::string_body>>
 struct HttpSink
 {
+    using Response = http::response<typename Session::ResponseBody>;
+    using ResponseHandler = std::function<void(const Response&, bool&)>;
     std::shared_ptr<Session> session;
     std::string url;
-    http::verb verb;
-    std::string data;
+    ResponseHandler onDataHandler;
     explicit HttpSink(std::shared_ptr<Session> aSession) :
         session(std::move(aSession))
     {}
-    void setUrl(std::string u)
+    HttpSink& setUrl(std::string u)
     {
         url = std::move(u);
+        return *this;
     }
-    void setVerb(http::verb v)
+    HttpSink& onData(ResponseHandler dataHandler)
     {
-        verb = v;
-    }
-    void setData(std::string d)
-    {
-        data = std::move(d);
+        onDataHandler = std::move(dataHandler);
+        return *this;
     }
 
-    void operator()(T data, auto&& token)
+    void operator()(T data, auto&& requestNext)
     {
         session->setResponseHandler(
-            [token = std::move(token)](
-                const http::response<http::string_body>& res) {
-            std::cout << res;
-            token();
+            [this, requestNext = std::move(requestNext)](const Response& res) {
+            bool neednext{false};
+            if (onDataHandler)
+            {
+                onDataHandler(res, neednext);
+            }
+            requestNext(neednext);
         });
         boost::urls::url_view urlvw(url);
         std::string h = urlvw.host();
