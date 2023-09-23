@@ -116,7 +116,7 @@ struct TcpStream : public SyncStream<beast::tcp_stream>
         lowestLayer().close();
     }
 };
-struct SSLStream : public SyncStream<beast::ssl_stream<beast::tcp_stream>>
+struct SslStream : public SyncStream<beast::ssl_stream<beast::tcp_stream>>
 {
   private:
     void on_resolve(std::function<void(beast::error_code)> connectionHandler,
@@ -146,7 +146,7 @@ struct SSLStream : public SyncStream<beast::ssl_stream<beast::tcp_stream>>
     }
 
   public:
-    SSLStream(net::any_io_executor ex, ssl::context& ctx) :
+    SslStream(net::any_io_executor ex, ssl::context& ctx) :
         SyncStream(beast::ssl_stream<beast::tcp_stream>(ex, ctx))
     {}
     void shutDown() override
@@ -280,7 +280,7 @@ struct ASyncTcpStream : public ASyncStream<beast::tcp_stream>
         stream().close();
     }
 };
-struct ASyncSslStream : public ASyncStream<beast::ssl_stream<beast::tcp_stream>>
+struct AsyncSslStream : public ASyncStream<beast::ssl_stream<beast::tcp_stream>>
 {
   private:
     void on_connect(std::function<void(beast::error_code)> connectionHandler,
@@ -295,7 +295,7 @@ struct ASyncSslStream : public ASyncStream<beast::ssl_stream<beast::tcp_stream>>
             ssl::stream_base::client,
             [thisp = Base::shared_from_this(),
              connHandler = std::move(connectionHandler)](beast::error_code ec) {
-            static_cast<ASyncSslStream*>(thisp.get())
+            static_cast<AsyncSslStream*>(thisp.get())
                 ->on_handshake(std::move(connHandler), ec);
             });
     }
@@ -320,7 +320,7 @@ struct ASyncSslStream : public ASyncStream<beast::ssl_stream<beast::tcp_stream>>
     }
 
   public:
-    ASyncSslStream(net::any_io_executor ex, ssl::context& ctx) :
+    AsyncSslStream(net::any_io_executor ex, ssl::context& ctx) :
         ASyncStream(beast::ssl_stream<beast::tcp_stream>(ex, ctx))
     {}
 
@@ -333,12 +333,13 @@ struct ASyncSslStream : public ASyncStream<beast::ssl_stream<beast::tcp_stream>>
         // // Gracefully close the stream
         stream().async_shutdown(
             [thisp = Base::shared_from_this()](beast::error_code ec) {
-            static_cast<ASyncSslStream*>(thisp.get())->on_shutdown(ec);
+            static_cast<AsyncSslStream*>(thisp.get())->on_shutdown(ec);
         });
     }
 };
 // Performs an HTTP GET and prints the response
-template <typename Stream, typename ReqBody, typename ResBody>
+template <typename Stream, typename ReqBody = http::empty_body,
+          typename ResBody = http::string_body>
 class HttpSession :
     public std::enable_shared_from_this<HttpSession<Stream, ReqBody, ResBody>>
 {

@@ -16,37 +16,28 @@ struct FluxBase
     };
     using CompletionToken = std::function<void()>;
 
-    using Handler = std::function<void(const T&)>;
-    using HandlerWithCompletionToken =
-        std::function<void(const T&, CompletionToken&&)>;
+    using AsyncSubscriber = std::function<void(T, CompletionToken&&)>;
+    using SyncSubscriber = std::function<void(T)>;
 
   protected:
     explicit FluxBase(SourceHandler* srcHandler) : mSource(srcHandler) {}
     std::unique_ptr<SourceHandler> mSource{};
     std::function<void()> onFinishHandler{};
     std::vector<std::function<T(T)>> mapHandlers{};
-    std::function<void(T, std::function<void()>)> subscriber;
+    std::variant<SyncSubscriber, AsyncSubscriber> subscriber;
+    void invokeSubscriber(T& r, AsyncSubscriber& handler)
+    {
+        handler(std::move(r), [this] {
+            subscribe(std::move(std::get<AsyncSubscriber>(subscriber)));
+        });
+    }
+    void invokeSubscriber(T& r, SyncSubscriber& handler)
+    {
+        handler(std::move(r));
+        subscribe(std::move(handler));
+    }
 
   public:
-    void subscribe(Handler handler)
-    {
-        if (mSource->hasNext())
-        {
-            mSource->next([handler = std::move(handler), this](T v) {
-                auto r = std::accumulate(begin(mapHandlers), end(mapHandlers),
-                                         v, [](auto sofar, auto& func) {
-                                             return func(std::move(sofar));
-                                         });
-                handler(r);
-                subscribe(std::move(handler));
-            });
-            return;
-        }
-        if (onFinishHandler)
-        {
-            onFinishHandler();
-        }
-    }
     void subscribe(auto handler)
     {
         subscriber = std::move(handler);
@@ -57,8 +48,11 @@ struct FluxBase
                                          v, [](auto sofar, auto& func) {
                                              return func(std::move(sofar));
                                          });
-                subscriber(r, [this] { subscribe(std::move(subscriber)); });
+                std::visit(
+                    [&r, this](auto& handler) { invokeSubscriber(r, handler); },
+                    subscriber);
             });
+
             return;
         }
         if (onFinishHandler)
@@ -81,12 +75,15 @@ struct FluxBase
 template <typename T, typename Session>
 struct HttpSource : FluxBase<T>::SourceHandler
 {
-    int count{1};
     std::shared_ptr<Session> session;
     std::string url;
     http::verb verb;
-    explicit HttpSource(std::shared_ptr<Session> aSession, int shots) :
-        session(std::move(aSession)), count(shots)
+    int count{1};
+    bool forever{false};
+    explicit HttpSource(std::shared_ptr<Session> aSession, int shots,
+                        bool infinite = false) :
+        session(std::move(aSession)),
+        count(shots), forever(infinite)
     {}
     void setUrl(std::string u)
     {
@@ -96,10 +93,16 @@ struct HttpSource : FluxBase<T>::SourceHandler
     {
         verb = v;
     }
-
+    void decrement()
+    {
+        if (count > 0)
+        {
+            count--;
+        }
+    }
     void next(std::function<void(T)> consumer) override
     {
-        count--;
+        decrement();
         session->setResponseHandler(
             [consumer = std::move(consumer)](
                 const http::response<http::string_body>& res) {
@@ -110,16 +113,21 @@ struct HttpSource : FluxBase<T>::SourceHandler
         std::string p = urlvw.port();
         std::string path = urlvw.path();
         session->setOptions(Host{h}, Port{p}, Target{path}, Version{11},
-                            Verb{verb}, KeepAlive{true});
+                            Verb{verb}, KeepAlive{forever});
         session->run();
     }
     bool hasNext() const override
     {
-        return count > 0;
+        return forever || count > 0;
+    }
+    void stop()
+    {
+        forever = false;
     }
 };
 
-template <typename T, typename Session>
+template <typename T,
+          typename Session = HttpSession<AsyncSslStream, http::string_body>>
 struct HttpSink
 {
     std::shared_ptr<Session> session;
@@ -142,7 +150,7 @@ struct HttpSink
         data = std::move(d);
     }
 
-    void operator()(T&& data, auto&& token)
+    void operator()(T data, auto&& token)
     {
         session->setResponseHandler(
             [token = std::move(token)](
@@ -154,7 +162,7 @@ struct HttpSink
         std::string h = urlvw.host();
         std::string p = urlvw.port();
         std::string path = urlvw.path();
-        http::string_body::value_type body(data);
+        http::string_body::value_type body(std::move(data));
 
         session->setOptions(Host{h}, Port{p}, Target{path}, Version{11},
                             Verb{http::verb::post}, KeepAlive{true}, body,
@@ -162,8 +170,9 @@ struct HttpSink
         session->run();
     }
 };
-// template <typename T, typename Session>
-// HttpSource(std::shared_ptr<Session>, int) -> HttpSource<T, Session>;
+
+template <typename Session>
+HttpSource(std::shared_ptr<Session>) -> HttpSource<std::string, Session>;
 template <typename T>
 struct Mono : FluxBase<T>
 {
@@ -191,18 +200,54 @@ struct Mono : FluxBase<T>
         return Mono{new Just(std::move(v))};
     }
     template <typename Stream>
-    static Mono
-        connect(std::shared_ptr<
-                    HttpSession<Stream, http::empty_body, http::string_body>>
-                    session,
-                const std::string& url)
+    static Mono connect(std::shared_ptr<HttpSession<Stream>> session,
+                        const std::string& url)
     {
-        auto src = new HttpSource<
-            T, HttpSession<Stream, http::empty_body, http::string_body>>(
-            session, 1);
+        auto src = new HttpSource<T, HttpSession<Stream>>(session, 1);
         src->setUrl(url);
         src->setVerb(http::verb::get);
         auto m = Mono{src};
+        return m;
+    }
+};
+
+template <typename T>
+struct Flux : FluxBase<T>
+{
+    using Base = FluxBase<T>;
+    template <class R>
+    struct Range : Base::SourceHandler
+    {
+        R range{};
+        R::iterator current{};
+        explicit Range(R v) : range(std::move(v)), current(range.begin()) {}
+        void next(std::function<void(T)> consumer) override
+        {
+            T v = std::move(*current);
+            ++current;
+            consumer(std::move(v));
+        }
+        bool hasNext() const override
+        {
+            return current != range.end();
+        }
+    };
+
+    explicit Flux(Base::SourceHandler* srcHandler) : Base(srcHandler) {}
+    template <class R>
+    static Flux range(R v)
+    {
+        return Flux{new Range<R>(std::move(v))};
+    }
+
+    template <typename Stream>
+    static Flux connect(std::shared_ptr<HttpSession<Stream>> session,
+                        const std::string& url)
+    {
+        auto src = new HttpSource<T, HttpSession<Stream>>(session, 1, true);
+        src->setUrl(url);
+        src->setVerb(http::verb::get);
+        auto m = Flux{src};
         return m;
     }
 };

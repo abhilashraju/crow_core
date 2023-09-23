@@ -1,6 +1,8 @@
 #include "http/http_client.hpp"
 
 #include "http/web_client.hpp"
+
+#include <map>
 struct Sink
 {
     void operator()(auto&& data, auto&& token) const
@@ -11,21 +13,6 @@ struct Sink
 };
 int main(int argc, char** argv)
 {
-    // Check command line arguments.
-    if (argc != 4 && argc != 5)
-    {
-        std::cerr
-            << "Usage: http-client-async-ssl <host> <port> <target> [<HTTP version: 1.0 or 1.1(default)>]\n"
-            << "Example:\n"
-            << "    http-client-async-ssl www.example.com 443 /\n"
-            << "    http-client-async-ssl www.example.com 443 / 1.0\n";
-        return EXIT_FAILURE;
-    }
-    const auto host = argv[1];
-    const auto port = argv[2];
-    const auto target = argv[3];
-    int version = argc == 5 && !std::strcmp("1.0", argv[4]) ? 10 : 11;
-
     // The io_context is required for all I/O
     net::io_context ioc;
 
@@ -39,40 +26,42 @@ int main(int argc, char** argv)
     ctx.set_verify_mode(ssl::verify_none);
     auto m = Mono<int>::just(10);
 
-    m.subscribe([](auto v, auto&& token) {
+    m.subscribe([](auto v, auto&& requestNext) {
         std::cout << v << std::endl;
-        token();
+        requestNext();
     });
 
-    auto m2 = Mono<std::string>::just("hello");
-    m2.map([](auto&& v) { return v + " world"; })
-        .map([](auto&& v) { return v + " example"; })
+    auto m2 = Flux<std::pair<std::string, std::string>>::range(
+        std::map{std::make_pair(std::string("name"), std::string("hello")),
+                 std::make_pair(std::string("greetings"), std::string("hi"))});
+    m2.map([](auto&& v) {
+          v.second += " world";
+          return v;
+      })
+        .map([](auto&& v) {
+            v.second += " example";
+            return v;
+        })
         .onFinish([]() { std::cout << "end of stream\n"; })
-        .subscribe([](auto v, auto token) {
-            std::cout << v << std::endl;
-            token();
+        .subscribe([](auto v) {
+            std::cout << v.first << "," << v.second << std::endl;
         });
-    // Launch the asynchronous operation
-    // The session is constructed with a strand to
-    // ensure that handlers do not execute concurrently.
+
     auto ex = net::make_strand(ioc);
-    // std::make_shared<HttpSession<ASyncSslStream>>(ex, ASyncSslStream(ex,
-    // ctx))
-    //     ->run(host, port, target, http::verb::get, version);
-    using SourceSession =
-        HttpSession<ASyncSslStream, http::empty_body, http::string_body>;
+
+    using SourceSession = HttpSession<AsyncSslStream>;
     std::shared_ptr<SourceSession> session =
-        SourceSession::create(ex, ASyncSslStream(ex, ctx));
-    auto m3 = Mono<std::string>::connect(session,
+        SourceSession::create(ex, AsyncSslStream(ex, ctx));
+    auto m3 = Flux<std::string>::connect(session,
                                          "https://127.0.0.1:8443/machines");
-    using SinkSession =
-        HttpSession<ASyncSslStream, http::string_body, http::string_body>;
-    std::shared_ptr<SinkSession> sinksession =
-        SinkSession::create(ex, ASyncSslStream(ex, ctx));
+    m3.map([](auto v) {
+        std::string_view view(v);
+        return std::string(view.substr(0, 10));
+    });
+    using SinkSession = HttpSession<AsyncSslStream, http::string_body>;
+    auto sinksession = SinkSession::create(ex, AsyncSslStream(ex, ctx));
     HttpSink<std::string, SinkSession> sink(sinksession);
     sink.setUrl("https://127.0.0.1:8443/test");
-    sink.setVerb(http::verb::post);
-
     m3.subscribe([](auto v, auto&& token) {
         std::cout << v << std::endl;
         token();
