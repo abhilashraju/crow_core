@@ -64,7 +64,7 @@ TEST(http_response, filebody)
     std::string path = makePath(std::this_thread::get_id());
     makeFile(path);
     res.openFile(path);
-
+  
     verifyHeaders(res);
     std::filesystem::remove(path);
 }
@@ -76,6 +76,30 @@ TEST(http_response, body_transitions)
     std::string path = makePath(std::this_thread::get_id());
     makeFile(path);
     res.openFile(path);
+
+    EXPECT_EQ(boost::variant2::holds_alternative<crow::Response::file_response>(
+                  res.response),
+              true);
+
+    verifyHeaders(res);
+    res.write("body text");
+
+    EXPECT_EQ(
+        boost::variant2::holds_alternative<crow::Response::string_response>(
+            res.response),
+        true);
+
+    verifyHeaders(res);
+    std::filesystem::remove(path);
+}
+TEST(http_response, base64_body_transitions)
+{
+    crow::Response res;
+    addHeaders(res);
+    std::string_view s = "sample text";
+    std::string path = makePath(std::this_thread::get_id());
+    makeFile(path);
+    res.openFile<crow::Response::base64file_response>(path);
 
     EXPECT_EQ(boost::variant2::holds_alternative<crow::Response::file_response>(
                   res.response),

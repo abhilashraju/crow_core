@@ -11,7 +11,7 @@ project(
 CROW_ARGS=['-DBMCWEB_ENABLE_SSL','-DBMCWEB_INSECURE_DISABLE_AUTHX','-DBOOST_URL_NO_SOURCE_LOCATION','-DBMCWEB_INSECURE_DISABLE_AUTHX']
 #CHAI_ARGS=[]
 openssl_dep = dependency('openssl', version: '>=1.1.1')
-boost_dep = dependency('boost',modules: ['coroutine'])
+boost_dep = dependency('boost',modules: ['coroutine','url'])
 json_dep = dependency('nlohmann_json')
 gtest = subproject('gtest')
 #benchmark = subproject('benchmark')
@@ -36,7 +36,7 @@ if get_option('enable-tests')
 endif
 executable(
   'crow_core',
-  ['http_client.cpp','boost_url.cpp'],
+  ['http_client.cpp'],
   include_directories: core_includes,
   dependencies:[boost_dep,json_dep,openssl_dep,crow_core_dependencies],
   install: true,
