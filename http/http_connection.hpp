@@ -315,7 +315,8 @@ class Connection :
         }
         else
         {
-            return adaptor.is_open();
+            // return adaptor.is_open();
+            return true;
         }
     }
     void close()
@@ -381,20 +382,22 @@ class Connection :
     boost::system::error_code getClientIp(boost::asio::ip::address& ip)
     {
         boost::system::error_code ec;
-        BMCWEB_LOG_DEBUG("Fetch the client IP address");
-        boost::asio::ip::tcp::endpoint endpoint =
-            boost::beast::get_lowest_layer(adaptor).remote_endpoint(ec);
-
-        if (ec)
-        {
-            // If remote endpoint fails keep going. "ClientOriginIPAddress"
-            // will be empty.
-            BMCWEB_LOG_ERROR("Failed to get the client's IP Address. ec : {}",
-                             ec);
-            return ec;
-        }
-        ip = endpoint.address();
         return ec;
+        // BMCWEB_LOG_DEBUG("Fetch the client IP address");
+        // boost::asio::ip::tcp::endpoint endpoint =
+        //     boost::beast::get_lowest_layer(adaptor).remote_endpoint(ec);
+
+        // if (ec)
+        // {
+        //     // If remote endpoint fails keep going. "ClientOriginIPAddress"
+        //     // will be empty.
+        //     BMCWEB_LOG_ERROR("Failed to get the client's IP Address. ec :
+        //     {}",
+        //                      ec);
+        //     return ec;
+        // }
+        // ip = endpoint.address();
+        // return ec;
     }
 
   private:
