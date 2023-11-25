@@ -71,7 +71,7 @@ std::string makePath(std::thread::id threadID)
 void makeFile(const std::string& path, auto genrator)
 {
     std::ofstream file;
-    std::string_view s = genrator();
+    std::string s = genrator();
     file.open(path);
     file << s;
     file.close();
