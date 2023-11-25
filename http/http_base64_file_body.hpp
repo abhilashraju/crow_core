@@ -74,12 +74,15 @@ class Base64FileBody::writer
                              fromlast.substr(fromlast.length() - reminder));
             auto view = std::string_view{fromlast.data(),
                                          fromlast.length() - reminder};
-            BMCWEB_LOG_DEBUG("view ", view.substr(view.length() - 5));
+            BMCWEB_LOG_DEBUG("last five of view ",
+                             view.substr(view.length() - 5));
         }
 
         auto view = std::string_view{fromlast.data(),
                                      fromlast.length() - reminder};
-
+        BMCWEB_LOG_DEBUG("************** ");
+        BMCWEB_LOG_DEBUG("view ", view);
+        BMCWEB_LOG_DEBUG("************** ");
         buf_ = std::move(crow::utility::base64encode(view));
         fromlast = fromlast.substr(fromlast.length() - reminder);
         return {
