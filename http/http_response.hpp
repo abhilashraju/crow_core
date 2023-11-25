@@ -29,7 +29,7 @@ struct Response
 
     using string_response = http::response<http::string_body>;
     using file_response = http::response<http::file_body>;
-    using base64file_response = http::response<crow::Base64FileBody>;
+    using base64file_response = http::response<bmcweb::Base64FileBody>;
 
     // Use boost variant2 because it doesn't have valueless by exception
     boost::variant2::variant<string_response, file_response,
@@ -266,7 +266,10 @@ struct Response
             str->body() += bodyPart;
             return;
         }
-        response.emplace<string_response>(result(), 11, std::move(bodyPart));
+        http::header<false> headTemp = std::move(fields());
+        string_response& stringResponse =
+            response.emplace<string_response>(std::move(headTemp));
+        stringResponse.body() = std::move(bodyPart);
     }
 
     void end()
