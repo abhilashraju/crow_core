@@ -138,7 +138,7 @@ TEST(http_response, base64_body_transitions)
 {
     crow::Response res;
     addHeaders(res);
-    std::string_view s = "sample text      s s";
+    std::string_view s = "sample text";
     std::string path = makePath(std::this_thread::get_id());
     auto dataMaker = [&]() {
         int size{0};
