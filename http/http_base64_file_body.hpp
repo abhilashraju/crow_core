@@ -1,6 +1,5 @@
 #pragma once
 
-#include "logging.hpp"
 #include "utility.hpp"
 
 #include <boost/beast/http/file_body.hpp>
@@ -64,25 +63,14 @@ class Base64FileBody::writer
             std::string_view(static_cast<const char*>(ret.get().first.data()),
                              ret.get().first.size());
         fromlast.append(chunkView);
-        BMCWEB_LOG_DEBUG("current ", fromlast.substr(0, 5));
         size_t reminder{0};
         if (ret.get().second)
         {
             reminder = fromlast.length() % 3;
-            BMCWEB_LOG_DEBUG("reminder ", reminder);
-            BMCWEB_LOG_DEBUG("next ",
-                             fromlast.substr(fromlast.length() - reminder));
-            auto view = std::string_view{fromlast.data(),
-                                         fromlast.length() - reminder};
-            BMCWEB_LOG_DEBUG("last five of view ",
-                             view.substr(view.length() - 5));
         }
-
         auto view = std::string_view{fromlast.data(),
                                      fromlast.length() - reminder};
-        BMCWEB_LOG_DEBUG("************** ");
-        BMCWEB_LOG_DEBUG("view ", view);
-        BMCWEB_LOG_DEBUG("************** ");
+
         buf_ = std::move(crow::utility::base64encode(view));
         fromlast = fromlast.substr(fromlast.length() - reminder);
         return {
