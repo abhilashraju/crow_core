@@ -412,6 +412,7 @@ struct Response
         if (ec)
         {
             BMCWEB_LOG_ERROR("Failed to set file size");
+            return false;
         }
         updateFileBody<resptype>(std::move(body));
         return true;

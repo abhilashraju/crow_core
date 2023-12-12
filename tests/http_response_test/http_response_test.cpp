@@ -43,8 +43,7 @@ void readHeader(boost::beast::http::serializer<false, Body>& sr,
 {
     while (!sr.is_header_done())
     {
-        sr.next(ec, [&sr](boost::beast::error_code& ec, const auto& buffer) {
-            ec = {};
+        sr.next(ec, [&sr](boost::beast::error_code&, const auto& buffer) {
             sr.consume(boost::beast::buffer_bytes(buffer));
         });
     }
@@ -53,24 +52,24 @@ template <typename Body>
 std::string readBody(boost::beast::http::serializer<false, Body>& sr,
                      boost::beast::error_code& ec)
 {
-    std::stringstream ret;
+    std::string ret;
     while (!sr.is_done())
     {
-        sr.next(ec,
-                [&sr, &ret](boost::beast::error_code& ec, const auto& buffer) {
-            ec = {};
+        sr.next(ec, [&sr, &ret](boost::beast::error_code&, const auto& buffer) {
             std::accumulate(boost::asio::buffer_sequence_begin(buffer),
                             boost::asio::buffer_sequence_end(buffer),
-                            std::ref(ret), [&](auto sofar, const auto& buffer) {
-                sofar.get().write(static_cast<char const*>(buffer.data()),
-                                  buffer.size());
-                sr.consume(buffer.size());
+                            std::ref(ret),
+                            [&](auto sofar, const auto& innerBuf) {
+                auto view = std::string_view(
+                    static_cast<char const*>(innerBuf.data()), innerBuf.size());
+                sofar.get() += view;
+                sr.consume(innerBuf.size());
                 return sofar;
             });
         });
     }
 
-    return ret.str();
+    return ret;
 }
 template <class Body, typename Fields>
 std::string getData(boost::beast::http::message<false, Body, Fields>& m,
@@ -205,7 +204,7 @@ TEST(HttpResponse, Base64FileBodyWriterLarge)
     crow::Response res;
     auto dataGen = []() {
         std::string result;
-        int i = 0;
+        unsigned i = 0;
         while (i < 10000)
         {
             result += "sample text";
