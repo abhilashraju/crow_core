@@ -183,8 +183,7 @@ void testFileData(crow::Response& res, const std::string& data)
         boost::beast::error_code ec;
         auto fileData = getData(arg, ec);
         EXPECT_EQ(ec.value(), 0);
-        auto encodeddata = crow::utility::base64encode(data);
-        EXPECT_EQ(fileData, encodeddata);
+        EXPECT_EQ(fileData, data);
     },
         res.response);
 }
@@ -195,7 +194,7 @@ TEST(HttpResponse, Base64FileBodyWriter)
     std::string path = makeFile([&data]() { return data; });
     int fd = open(path.c_str(), O_RDONLY);
     res.openBase64File(dup(fd));
-    testFileData(res, data);
+    testFileData(res, crow::utility::base64encode(data));
     close(fd);
     std::filesystem::remove(path);
 }
@@ -204,7 +203,7 @@ TEST(HttpResponse, Base64FileBodyWriterLarge)
     crow::Response res;
     auto dataGen = []() {
         std::string result;
-        unsigned i = 0;
+        size_t i = 0;
         while (i < 10000)
         {
             result += "sample text";
@@ -216,6 +215,29 @@ TEST(HttpResponse, Base64FileBodyWriterLarge)
     std::string path = makeFile(dataGen);
     int fd = open(path.c_str(), O_RDONLY);
     res.openBase64File(dup(fd));
+    auto data = dataGen();
+    testFileData(res, crow::utility::base64encode(data));
+    close(fd);
+    std::filesystem::remove(path);
+}
+
+TEST(HttpResponse, FileBodyWriterLarge)
+{
+    crow::Response res;
+    auto dataGen = []() {
+        std::string result;
+        size_t i = 0;
+        while (i < 10000)
+        {
+            result += "sample text";
+            i += std::string("sample text").length();
+        }
+        return result;
+    };
+
+    std::string path = makeFile(dataGen);
+    int fd = open(path.c_str(), O_RDONLY);
+    res.openFile(dup(fd));
     testFileData(res, dataGen());
     close(fd);
     std::filesystem::remove(path);
