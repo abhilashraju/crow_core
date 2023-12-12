@@ -71,7 +71,7 @@ class Base64FileBody::writer
         auto view = std::string_view{fromlast.data(),
                                      fromlast.length() - reminder};
 
-        buf_ = std::move(crow::utility::base64encode(view));
+        buf_ = crow::utility::base64encode(view);
         fromlast = fromlast.substr(fromlast.length() - reminder);
         return {
             {const_buffers_type{buf_.data(), buf_.length()}, ret.get().second}};

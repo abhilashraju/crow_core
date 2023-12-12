@@ -13,7 +13,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
-
+#include <utility>
 namespace crow
 {
 
@@ -359,6 +359,25 @@ struct Response
             [](auto& r) -> message_generator { return std::move(r); },
             response);
     }
+
+    bool openFile(const std::filesystem::path& path)
+    {
+        return openFileImpl<file_response>(path);
+    }
+    bool openBase64File(const std::filesystem::path& path)
+    {
+        return openFileImpl<base64file_response>(path);
+    }
+    bool openFile(int fd)
+    {
+        return openFileImpl<file_response>(fd);
+    }
+    bool openBase64File(int fd)
+    {
+        return openFileImpl<base64file_response>(fd);
+    }
+
+  private:
     template <typename resptype>
     void updateFileBody(typename resptype::body_type::value_type file)
     {
@@ -369,8 +388,8 @@ struct Response
             response.emplace<resptype>(std::move(headTemp));
         fileResponse.body() = std::move(file);
     }
-    template <typename resptype = file_response>
-    bool openFile(const std::filesystem::path& path)
+    template <typename resptype>
+    bool openFileImpl(const std::filesystem::path& path)
     {
         typename resptype::body_type::value_type file;
         boost::beast::error_code ec;
@@ -382,23 +401,21 @@ struct Response
         updateFileBody<resptype>(std::move(file));
         return true;
     }
-    template <typename resptype = file_response>
-    bool openFile(int fd)
+    template <typename resptype>
+    bool openFileImpl(int fd)
     {
         typename resptype::body_type::value_type body;
-        boost::beast::error_code ec;
         body.file().native_handle(fd);
+        boost::beast::error_code ec;
+        // this is necessory to set the file size in body
         body.seek(0, ec);
         if (ec)
         {
-            BMCWEB_LOG_ERROR("Failed to get size of file");
-            return false;
+            BMCWEB_LOG_ERROR("Failed to set file size");
         }
         updateFileBody<resptype>(std::move(body));
         return true;
     }
-
-  private:
     std::optional<std::string> expectedHash;
     bool completed = false;
     std::function<void(Response&)> completeRequestHandler;

@@ -1,82 +1,92 @@
 #include "boost/beast/core/flat_buffer.hpp"
 #include "boost/beast/http/serializer.hpp"
 #include "http/http_response.hpp"
-#include "utility.hpp"
 
 #include <filesystem>
 #include <fstream>
 #include <thread>
 
 #include "gtest/gtest.h"
-
-static void addHeaders(crow::Response& res)
+namespace
+{
+void addHeaders(crow::Response& res)
 {
     res.addHeader("myheader", "myvalue");
     res.keepAlive(true);
     res.result(boost::beast::http::status::ok);
 }
-static void verifyHeaders(crow::Response& res)
+void verifyHeaders(crow::Response& res)
 {
     EXPECT_EQ(res.getHeaderValue("myheader"), "myvalue");
     EXPECT_EQ(res.keepAlive(), true);
     EXPECT_EQ(res.result(), boost::beast::http::status::ok);
 }
-template <class Serializer>
-struct Lambda
-{
-    Serializer& sr;
-    mutable boost::beast::flat_buffer buffer;
-    explicit Lambda(Serializer& s) : sr(s) {}
 
-    template <class ConstBufferSequence>
-    void operator()(boost::beast::error_code& ec,
-                    const ConstBufferSequence& buffers) const
+std::string makeFile(std::function<std::string()> sampleData)
+{
+    std::filesystem::path path = std::filesystem::temp_directory_path();
+    path /= "bmcweb_http_response_test_XXXXXXXXXXX";
+    std::string stringPath = path.string();
+    int fd = mkstemp(stringPath.data());
+    EXPECT_GT(fd, 0);
+    std::string_view sample = sampleData();
+    EXPECT_EQ(write(fd, sample.data(), sample.size()), sample.size());
+    return stringPath;
+}
+std::string makeFile()
+{
+    return makeFile([]() { return "sample text"; });
+}
+template <typename Body>
+void readHeader(boost::beast::http::serializer<false, Body>& sr,
+                boost::beast::error_code& ec)
+{
+    while (!sr.is_header_done())
     {
-        ec = {};
-        buffer.commit(boost::asio::buffer_copy(
-            buffer.prepare(boost::beast::buffer_bytes(buffers)), buffers));
-        sr.consume(boost::beast::buffer_bytes(buffers));
+        sr.next(ec, [&sr](boost::beast::error_code& ec, const auto& buffer) {
+            ec = {};
+            sr.consume(boost::beast::buffer_bytes(buffer));
+        });
     }
-};
-template <class Serializer>
-Lambda(Serializer&) -> Lambda<Serializer>;
-
-template <bool isRequest, class Body, class Fields>
-auto writeMessage(boost::beast::http::serializer<isRequest, Body, Fields>& sr,
-                  boost::beast::error_code& ec)
+}
+template <typename Body>
+std::string readBody(boost::beast::http::serializer<false, Body>& sr,
+                     boost::beast::error_code& ec)
 {
+    std::stringstream ret;
+    while (!sr.is_done())
+    {
+        sr.next(ec,
+                [&sr, &ret](boost::beast::error_code& ec, const auto& buffer) {
+            ec = {};
+            std::accumulate(boost::asio::buffer_sequence_begin(buffer),
+                            boost::asio::buffer_sequence_end(buffer),
+                            std::ref(ret), [&](auto sofar, const auto& buffer) {
+                sofar.get().write(static_cast<char const*>(buffer.data()),
+                                  buffer.size());
+                sr.consume(buffer.size());
+                return sofar;
+            });
+        });
+    }
+
+    return ret.str();
+}
+template <class Body, typename Fields>
+std::string getData(boost::beast::http::message<false, Body, Fields>& m,
+                    boost::beast::error_code& ec)
+{
+    boost::beast::http::serializer<false, Body> sr{m};
+    std::stringstream ret;
     sr.split(true);
-    Lambda body(sr);
-    Lambda header(sr);
-    do
+    readHeader(sr, ec);
+    if (ec)
     {
-        sr.next(ec, header);
-    } while (!sr.is_header_done());
-    if (!ec && !sr.is_done())
-    {
-        do
-        {
-            sr.next(ec, body);
-        } while (!ec && !sr.is_done());
+        return {};
     }
-    return body;
+    return readBody(sr, ec);
 }
-
-std::string makePath(std::thread::id threadID)
-{
-    std::stringstream stream;
-    stream << "/tmp/" << threadID << ".txt";
-    return stream.str();
-}
-void makeFile(const std::string& path, auto genrator)
-{
-    std::ofstream file;
-    std::string s = genrator();
-    file.open(path);
-    file << s;
-    file.close();
-}
-TEST(http_response, Defaults)
+TEST(HttpResponse, Defaults)
 {
     crow::Response res;
     EXPECT_EQ(
@@ -84,13 +94,13 @@ TEST(http_response, Defaults)
             res.response),
         true);
 }
-TEST(http_response, headers)
+TEST(HttpResponse, Headers)
 {
     crow::Response res;
     addHeaders(res);
     verifyHeaders(res);
 }
-TEST(http_response, stringbody)
+TEST(HttpResponse, StringBody)
 {
     crow::Response res;
     addHeaders(res);
@@ -99,24 +109,57 @@ TEST(http_response, stringbody)
     EXPECT_EQ(*res.body(), bodyvalue);
     verifyHeaders(res);
 }
-TEST(http_response, filebody)
+TEST(HttpResponse, FileBody)
 {
     crow::Response res;
     addHeaders(res);
-    std::string path = makePath(std::this_thread::get_id());
-    makeFile(path, []() { return "sample text"; });
+    std::string path = makeFile();
     res.openFile(path);
 
     verifyHeaders(res);
     std::filesystem::remove(path);
 }
-TEST(http_response, body_transitions)
+TEST(HttpResponse, FileBodyWithFd)
 {
     crow::Response res;
     addHeaders(res);
-    std::string_view s = "sample text";
-    std::string path = makePath(std::this_thread::get_id());
-    makeFile(path, []() { return "sample text"; });
+    std::string path = makeFile();
+    int fd = open(path.c_str(), O_RDONLY);
+    if (fd != -1)
+    {
+        res.openFile(fd);
+        verifyHeaders(res);
+    }
+    std::filesystem::remove(path);
+}
+TEST(HttpResponse, Base64FileBody)
+{
+    crow::Response res;
+    addHeaders(res);
+    std::string path = makeFile();
+    res.openBase64File(path);
+
+    verifyHeaders(res);
+    std::filesystem::remove(path);
+}
+TEST(HttpResponse, Base64FileBodyWithFd)
+{
+    crow::Response res;
+    addHeaders(res);
+    std::string path = makeFile();
+    int fd = open(path.c_str(), O_RDONLY);
+    if (fd != -1)
+    {
+        res.openBase64File(path);
+        verifyHeaders(res);
+    }
+    std::filesystem::remove(path);
+}
+TEST(HttpResponse, BodyTransitions)
+{
+    crow::Response res;
+    addHeaders(res);
+    std::string path = makeFile();
     res.openFile(path);
 
     EXPECT_EQ(boost::variant2::holds_alternative<crow::Response::file_response>(
@@ -134,53 +177,49 @@ TEST(http_response, body_transitions)
     verifyHeaders(res);
     std::filesystem::remove(path);
 }
-TEST(http_response, base64_body_transitions)
+void testFileData(crow::Response& res, const std::string& data)
+{
+    boost::variant2::visit(
+        [&res, &data](auto&& arg) {
+        boost::beast::error_code ec;
+        auto fileData = getData(arg, ec);
+        EXPECT_EQ(ec.value(), 0);
+        auto encodeddata = crow::utility::base64encode(data);
+        EXPECT_EQ(fileData, encodeddata);
+    },
+        res.response);
+}
+TEST(HttpResponse, Base64FileBodyWriter)
 {
     crow::Response res;
-    addHeaders(res);
-    std::string_view s = "sample text";
-    std::string path = makePath(std::this_thread::get_id());
-    auto dataMaker = [&]() {
-        int size{0};
-        std::string str;
-        while (size < 5000)
-        {
-            str += s;
-
-            size += s.length();
-        }
-        return str;
-    };
-    makeFile(path, dataMaker);
-    res.openFile<crow::Response::base64file_response>(path);
-
-    EXPECT_EQ(
-        boost::variant2::holds_alternative<crow::Response::base64file_response>(
-            res.response),
-        true);
-    boost::beast::error_code ec{};
-    crow::Response::base64file_response& bodyResp =
-        boost::variant2::get<crow::Response::base64file_response>(res.response);
-    boost::beast::http::response_serializer<bmcweb::Base64FileBody> sr{
-        bodyResp};
-    Lambda visit = writeMessage(sr, ec);
-
-    EXPECT_EQ(ec.operator bool(), false);
-    const auto b = boost::beast::buffers_front(visit.buffer.data());
-    std::string_view s1{static_cast<char*>(b.data()), b.size()};
-    std::string decoded;
-    auto success = std::move(crow::utility::base64Decode(s1, decoded));
-    EXPECT_EQ(success, true);
-    EXPECT_EQ(decoded, dataMaker());
-
-    verifyHeaders(res);
-    res.write("body text");
-
-    EXPECT_EQ(
-        boost::variant2::holds_alternative<crow::Response::string_response>(
-            res.response),
-        true);
-
-    verifyHeaders(res);
+    std::string data = "sample text";
+    std::string path = makeFile([&data]() { return data; });
+    int fd = open(path.c_str(), O_RDONLY);
+    res.openBase64File(dup(fd));
+    testFileData(res, data);
+    close(fd);
     std::filesystem::remove(path);
 }
+TEST(HttpResponse, Base64FileBodyWriterLarge)
+{
+    crow::Response res;
+    auto dataGen = []() {
+        std::string result;
+        int i = 0;
+        while (i < 10000)
+        {
+            result += "sample text";
+            i += std::string("sample text").length();
+        }
+        return result;
+    };
+
+    std::string path = makeFile(dataGen);
+    int fd = open(path.c_str(), O_RDONLY);
+    res.openBase64File(dup(fd));
+    testFileData(res, dataGen());
+    close(fd);
+    std::filesystem::remove(path);
+}
+
+} // namespace
