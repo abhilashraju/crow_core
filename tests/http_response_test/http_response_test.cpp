@@ -29,7 +29,7 @@ std::string makeFile(std::function<std::string()> sampleData)
     std::string stringPath = path.string();
     int fd = mkstemp(stringPath.data());
     EXPECT_GT(fd, 0);
-    std::string_view sample = sampleData();
+    std::string sample = sampleData();
     EXPECT_EQ(write(fd, sample.data(), sample.size()), sample.size());
     return stringPath;
 }
