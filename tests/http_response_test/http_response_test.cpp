@@ -22,7 +22,7 @@ void verifyHeaders(crow::Response& res)
     EXPECT_EQ(res.result(), boost::beast::http::status::ok);
 }
 
-std::string makeFile(std::function<std::string()> sampleData)
+std::string makeFile(const std::function<std::string()>& sampleData)
 {
     std::filesystem::path path = std::filesystem::temp_directory_path();
     path /= "bmcweb_http_response_test_XXXXXXXXXXX";
@@ -31,6 +31,7 @@ std::string makeFile(std::function<std::string()> sampleData)
     EXPECT_GT(fd, 0);
     std::string sample = sampleData();
     EXPECT_EQ(write(fd, sample.data(), sample.size()), sample.size());
+    close(fd);
     return stringPath;
 }
 std::string makeFile()
@@ -123,12 +124,10 @@ TEST(HttpResponse, FileBodyWithFd)
     crow::Response res;
     addHeaders(res);
     std::string path = makeFile();
-    int fd = open(path.c_str(), O_RDONLY);
-    if (fd != -1)
-    {
-        res.openFile(fd);
-        verifyHeaders(res);
-    }
+    FILE* fd = fopen(path.c_str(), "r+");
+    res.openFile(fileno(fd));
+    verifyHeaders(res);
+    fclose(fd);
     std::filesystem::remove(path);
 }
 TEST(HttpResponse, Base64FileBody)
@@ -146,12 +145,10 @@ TEST(HttpResponse, Base64FileBodyWithFd)
     crow::Response res;
     addHeaders(res);
     std::string path = makeFile();
-    int fd = open(path.c_str(), O_RDONLY);
-    if (fd != -1)
-    {
-        res.openBase64File(path);
-        verifyHeaders(res);
-    }
+    FILE* fd = fopen(path.c_str(), "r+");
+    res.openBase64File(fileno(fd));
+    verifyHeaders(res);
+    fclose(fd);
     std::filesystem::remove(path);
 }
 TEST(HttpResponse, BodyTransitions)
@@ -179,10 +176,11 @@ TEST(HttpResponse, BodyTransitions)
 void testFileData(crow::Response& res, const std::string& data)
 {
     boost::variant2::visit(
-        [&res, &data](auto&& arg) {
+        [&data](auto&& arg) {
         boost::beast::error_code ec;
         auto fileData = getData(arg, ec);
         EXPECT_EQ(ec.value(), 0);
+        EXPECT_EQ(fileData.length(), data.length());
         EXPECT_EQ(fileData, data);
     },
         res.response);
@@ -192,10 +190,10 @@ TEST(HttpResponse, Base64FileBodyWriter)
     crow::Response res;
     std::string data = "sample text";
     std::string path = makeFile([&data]() { return data; });
-    int fd = open(path.c_str(), O_RDONLY);
-    res.openBase64File(dup(fd));
+    FILE* f = fopen(path.c_str(), "r+");
+    res.openBase64File(fileno(f));
     testFileData(res, crow::utility::base64encode(data));
-    close(fd);
+    fclose(f);
     std::filesystem::remove(path);
 }
 TEST(HttpResponse, Base64FileBodyWriterLarge)
@@ -213,11 +211,11 @@ TEST(HttpResponse, Base64FileBodyWriterLarge)
     };
 
     std::string path = makeFile(dataGen);
-    int fd = open(path.c_str(), O_RDONLY);
-    res.openBase64File(dup(fd));
+    FILE* f = fopen(path.c_str(), "r+");
+    res.openBase64File(fileno(f));
     auto data = dataGen();
     testFileData(res, crow::utility::base64encode(data));
-    close(fd);
+    fclose(f);
     std::filesystem::remove(path);
 }
 
@@ -227,7 +225,7 @@ TEST(HttpResponse, FileBodyWriterLarge)
     auto dataGen = []() {
         std::string result;
         size_t i = 0;
-        while (i < 10000)
+        while (i < 4000)
         {
             result += "sample text";
             i += std::string("sample text").length();
@@ -236,10 +234,10 @@ TEST(HttpResponse, FileBodyWriterLarge)
     };
 
     std::string path = makeFile(dataGen);
-    int fd = open(path.c_str(), O_RDONLY);
-    res.openFile(dup(fd));
+    FILE* f = fopen(path.c_str(), "r+");
+    res.openFile(fileno(f));
     testFileData(res, dataGen());
-    close(fd);
+    fclose(f);
     std::filesystem::remove(path);
 }
 

@@ -15,21 +15,24 @@
 
 // IWYU pragma: no_include <ctype.h>
 
-namespace http_helpers {
+namespace http_helpers
+{
 
-enum class ContentType {
-  NoMatch,
-  ANY, // Accepts: */*
-  CBOR,
-  HTML,
-  JSON,
-  OctetStream,
-  EventStream,
+enum class ContentType
+{
+    NoMatch,
+    ANY, // Accepts: */*
+    CBOR,
+    HTML,
+    JSON,
+    OctetStream,
+    EventStream,
 };
 
-struct ContentTypePair {
-  std::string_view contentTypeString;
-  ContentType contentTypeEnum;
+struct ContentTypePair
+{
+    std::string_view contentTypeString;
+    ContentType contentTypeEnum;
 };
 
 constexpr std::array<ContentTypePair, 5> contentTypes{{
@@ -41,61 +44,71 @@ constexpr std::array<ContentTypePair, 5> contentTypes{{
 }};
 
 inline ContentType
-getPreferedContentType(std::string_view header,
-                       std::span<const ContentType> preferedOrder) {
-  size_t lastIndex = 0;
-  while (lastIndex < header.size() + 1) {
-    size_t index = header.find(',', lastIndex);
-    if (index == std::string_view::npos) {
-      index = header.size();
-    }
-    std::string_view encoding = header.substr(lastIndex, index);
+    getPreferedContentType(std::string_view header,
+                           std::span<const ContentType> preferedOrder)
+{
+    size_t lastIndex = 0;
+    while (lastIndex < header.size() + 1)
+    {
+        size_t index = header.find(',', lastIndex);
+        if (index == std::string_view::npos)
+        {
+            index = header.size();
+        }
+        std::string_view encoding = header.substr(lastIndex, index);
 
-    if (!header.empty()) {
-      header.remove_prefix(1);
-    }
-    lastIndex = index + 1;
-    // ignore any q-factor weighting (;q=)
-    std::size_t separator = encoding.find(";q=");
+        if (!header.empty())
+        {
+            header.remove_prefix(1);
+        }
+        lastIndex = index + 1;
+        // ignore any q-factor weighting (;q=)
+        std::size_t separator = encoding.find(";q=");
 
-    if (separator != std::string_view::npos) {
-      encoding = encoding.substr(0, separator);
-    }
-    // If the client allows any encoding, given them the first one on the
-    // servers list
-    if (encoding == "*/*") {
-      return ContentType::ANY;
-    }
-    const auto *knownContentType =
-        std::find_if(contentTypes.begin(), contentTypes.end(),
-                     [encoding](const ContentTypePair &pair) {
-                       return pair.contentTypeString == encoding;
-                     });
+        if (separator != std::string_view::npos)
+        {
+            encoding = encoding.substr(0, separator);
+        }
+        // If the client allows any encoding, given them the first one on the
+        // servers list
+        if (encoding == "*/*")
+        {
+            return ContentType::ANY;
+        }
+        const auto* knownContentType =
+            std::find_if(contentTypes.begin(), contentTypes.end(),
+                         [encoding](const ContentTypePair& pair) {
+            return pair.contentTypeString == encoding;
+        });
 
-    if (knownContentType == contentTypes.end()) {
-      // not able to find content type in list
-      continue;
-    }
+        if (knownContentType == contentTypes.end())
+        {
+            // not able to find content type in list
+            continue;
+        }
 
-    // Not one of the types requested
-    if (std::find(preferedOrder.begin(), preferedOrder.end(),
-                  knownContentType->contentTypeEnum) == preferedOrder.end()) {
-      continue;
+        // Not one of the types requested
+        if (std::find(preferedOrder.begin(), preferedOrder.end(),
+                      knownContentType->contentTypeEnum) == preferedOrder.end())
+        {
+            continue;
+        }
+        return knownContentType->contentTypeEnum;
     }
-    return knownContentType->contentTypeEnum;
-  }
-  return ContentType::NoMatch;
+    return ContentType::NoMatch;
 }
 
 inline bool isContentTypeAllowed(std::string_view header, ContentType type,
-                                 bool allowWildcard) {
-  auto types = std::to_array({type});
-  ContentType allowed = getPreferedContentType(header, types);
-  if (allowed == ContentType::ANY) {
-    return allowWildcard;
-  }
+                                 bool allowWildcard)
+{
+    auto types = std::to_array({type});
+    ContentType allowed = getPreferedContentType(header, types);
+    if (allowed == ContentType::ANY)
+    {
+        return allowWildcard;
+    }
 
-  return type == allowed;
+    return type == allowed;
 }
 
 } // namespace http_helpers

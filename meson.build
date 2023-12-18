@@ -30,13 +30,14 @@ crow_core_dependencies = nghttp2
 
 #boost_lib_path = boost_dep.get_pkgconfig_variable('libdir')
 boost_lib_path='/opt/homebrew/Cellar/boost/1.82.0/lib'
-core_includes = include_directories(['.','./include','./http'])
+core_includes = include_directories(['.','./include','./http','./utils'])
 if get_option('enable-tests')
   subdir('tests')
 endif
+subdir('redfish_event')
 executable(
   'crow_core',
-  ['http_client.cpp'],
+  ['plugintest.cpp'],
   include_directories: core_includes,
   dependencies:[boost_dep,json_dep,openssl_dep,crow_core_dependencies],
   install: true,

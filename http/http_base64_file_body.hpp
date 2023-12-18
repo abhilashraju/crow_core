@@ -24,20 +24,21 @@ struct Base64FileBody
     */
     static std::uint64_t size(const value_type& body)
     {
-        return ((boost::beast::http::file_body::size(body) + 2) / 3) * 4;
+        return crow::utility::Base64Encoder::encodedSize(
+            boost::beast::http::file_body::size(body));
     }
 };
 
 class Base64FileBody::writer
 {
   public:
-    using Base = boost::beast::http::file_body::writer;
+    using FileBody = boost::beast::http::file_body::writer;
     using const_buffers_type = boost::asio::const_buffer;
 
   private:
-    std::string buf_;
-    std::string fromlast;
-    Base base;
+    std::string buf;
+    crow::utility::Base64Encoder encoder;
+    FileBody base;
 
   public:
     template <bool isRequest, class Fields>
@@ -62,19 +63,16 @@ class Base64FileBody::writer
         auto chunkView =
             std::string_view(static_cast<const char*>(ret.get().first.data()),
                              ret.get().first.size());
-        fromlast.append(chunkView);
-        size_t reminder{0};
-        if (ret.get().second)
+        buf.clear();
+        buf.reserve(
+            crow::utility::Base64Encoder::encodedSize(chunkView.size()));
+        encoder.encode(chunkView, buf);
+        if (!ret.get().second)
         {
-            reminder = fromlast.length() % 3;
+            encoder.finalize(buf);
         }
-        auto view = std::string_view{fromlast.data(),
-                                     fromlast.length() - reminder};
-
-        buf_ = crow::utility::base64encode(view);
-        fromlast = fromlast.substr(fromlast.length() - reminder);
         return {
-            {const_buffers_type{buf_.data(), buf_.length()}, ret.get().second}};
+            {const_buffers_type{buf.data(), buf.length()}, ret.get().second}};
     }
 };
 } // namespace bmcweb
