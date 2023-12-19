@@ -1,5 +1,7 @@
 #include "router-plugin.h"
 
+#include "http/http_subscriber.hpp"
+
 #include <app.hpp>
 #include <boost/dll/alias.hpp> // for BOOST_DLL_ALIAS
 
