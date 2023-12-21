@@ -14,7 +14,7 @@ openssl_dep = dependency('openssl', version: '>=1.1.1')
 boost_dep = dependency('boost',modules: ['coroutine','url'])
 json_dep = dependency('nlohmann_json')
 gtest = subproject('gtest')
-reactor=subproject('reactor')
+
 #benchmark = subproject('benchmark')
 nghttp2 = dependency('libnghttp2', version: '>=1.52.0', required : false)
 if not nghttp2.found()
@@ -36,12 +36,12 @@ if get_option('enable-tests')
   subdir('tests')
 endif
 subdir('redfish_event')
-reactor =subproject('reactor')
-reactor_dep=reactor.get_variable('reactor_dep')
+
+
 executable(
   'crow_core',
   ['plugintest.cpp'],
   include_directories: core_includes,
-  dependencies:[boost_dep,json_dep,openssl_dep,crow_core_dependencies,reactor_dep],
+  dependencies:[boost_dep,json_dep,openssl_dep,crow_core_dependencies],
   install: true,
   install_dir: get_option('bindir'),cpp_args : CROW_ARGS,link_args: ['-L' + boost_lib_path])
