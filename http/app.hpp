@@ -175,10 +175,11 @@
 // // using App = crow::App;
 
 #pragma once
-namespace crow
-{
-struct App
-{
-    /* data */
+#include <boost/asio/io_context.hpp>
+namespace crow {
+struct App {
+  std::shared_ptr<boost::asio::io_context> io;
+  App(std::shared_ptr<boost::asio::io_context> ioIn) : io(std::move(ioIn)) {}
+  boost::asio::io_context &ioContext() { return *io; }
 };
 } // namespace crow

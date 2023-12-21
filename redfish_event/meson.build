@@ -8,10 +8,10 @@ redfish_event_sources = [
 REDFISH_EVENT_ARGS=['-DBOOST_URL_NO_SOURCE_LOCATION']
 openssl_dep = dependency('openssl', version: '>=1.1.1')
 boost_dep = dependency('boost',modules: ['coroutine','url'])
-reactor_dep=reactor.get_variable('reactor_dep')
+
 json_dep = dependency('nlohmann_json')
 
-core_includes = include_directories(['../include',
+core_includes = include_directories(['../include','.',
 '../http','..',
 '../plugin-ifaces'])
 
@@ -30,10 +30,10 @@ core_includes = include_directories(['../include',
 
 redfish_event_dep = declare_dependency(
 	include_directories : [core_includes],
-	dependencies : [dependency('threads'),openssl_dep,boost_dep]
+	dependencies : [dependency('threads'),openssl_dep,boost_dep,json_dep]
 )
 redfish_event_deps = [
-json_dep,boost_dep,openssl_dep,reactor_dep
+json_dep,boost_dep,openssl_dep
 ]
 
 
@@ -41,7 +41,7 @@ json_dep,boost_dep,openssl_dep,reactor_dep
 redfish_event = library('redfish_event', 
     sources : redfish_event_sources,
     include_directories : core_includes,
-    dependencies : [redfish_event_deps,reactor_dep],
+    dependencies : [redfish_event_deps],
     cpp_args : REDFISH_EVENT_ARGS,
     link_with : [])
     
