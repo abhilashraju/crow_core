@@ -11,8 +11,10 @@ namespace bmcweb {
 class MyRouterPlugin : public RouterPlugin {
 public:
   MyRouterPlugin() {}
-  std::string registerRoutes(crow::App &app) {
-    sendTestEventLog(app);
+  std::string registerRoutes(crow::App &app,
+                             boost::asio::any_io_executor &executor) {
+
+    sendTestEventLog(app, executor);
     return "MyRouterPlugin";
   }
 
@@ -31,7 +33,7 @@ public:
     }
     return RouterPlugin::getInterface(interfaceId);
   }
-  void sendTestEventLog(crow::App &app) {
+  void sendTestEventLog(crow::App &app, net::any_io_executor &executor) {
     nlohmann::json logEntryArray;
     logEntryArray.push_back({});
     nlohmann::json &logEntryJson = logEntryArray.back();
@@ -53,8 +55,8 @@ public:
 
     std::string strMsg =
         msg.dump(2, ' ', true, nlohmann::json::error_handler_t::replace);
-    EventServiceManager::getInstance(app.ioContext().get_executor())
-        .sendEvent(std::move(strMsg));
+
+    EventServiceManager::getInstance(executor).sendEvent(std::move(strMsg));
   }
   std::string getCurrentTime() {
     auto currentTime = std::chrono::system_clock::now();

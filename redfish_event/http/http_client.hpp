@@ -99,10 +99,10 @@ protected:
   }
 
 public:
-  TcpStream(net::any_io_executor ex) : SyncStream(beast::tcp_stream(ex)) {}
+  TcpStream(net::any_io_executor &ex) : SyncStream(beast::tcp_stream(ex)) {}
 
   void shutDown() override { lowestLayer().close(); }
-  TcpStream makeCopy() { return TcpStream(mStream.get_executor()); }
+  // TcpStream makeCopy() { return TcpStream(mStream.get_executor()); }
 };
 struct SslStream : public SyncStream<beast::ssl_stream<beast::tcp_stream>> {
 private:
@@ -130,7 +130,7 @@ private:
   }
 
 public:
-  SslStream(net::any_io_executor ex, ssl::context &ctx)
+  SslStream(net::any_io_executor &ex, ssl::context &ctx)
       : SyncStream(beast::ssl_stream<beast::tcp_stream>(ex, ctx)), sslCtx(ctx) {
   }
   void shutDown() override {
@@ -146,7 +146,7 @@ public:
     // If we get here then the connection is closed
     // gracefully
   }
-  SslStream makeCopy() { return SslStream(mStream.get_executor(), sslCtx); }
+  // SslStream makeCopy() { return SslStream(mStream.get_executor(), sslCtx); }
 };
 
 template <typename Stream>
@@ -251,10 +251,11 @@ private:
   }
 
 public:
-  AsyncTcpStream(net::any_io_executor ex)
+  AsyncTcpStream(net::any_io_executor &ex)
       : ASyncStream(beast::tcp_stream(ex)) {}
   void shutDown() { stream().close(); }
-  AsyncTcpStream makeCopy() { return AsyncTcpStream(mStream.get_executor()); }
+  // AsyncTcpStream makeCopy() { return AsyncTcpStream(mStream.get_executor());
+  // }
 };
 struct AsyncSslStream
     : public ASyncStream<beast::ssl_stream<beast::tcp_stream>> {
@@ -296,7 +297,7 @@ private:
   }
 
 public:
-  AsyncSslStream(net::any_io_executor ex, ssl::context &ctx)
+  AsyncSslStream(net::any_io_executor &ex, ssl::context &ctx)
       : ASyncStream(beast::ssl_stream<beast::tcp_stream>(ex, ctx)),
         sslCtx(ctx) {}
 
@@ -310,9 +311,9 @@ public:
           static_cast<AsyncSslStream *>(thisp.get())->on_shutdown(ec);
         });
   }
-  AsyncSslStream makeCopy() {
-    return AsyncSslStream(mStream.get_executor(), sslCtx);
-  }
+  // AsyncSslStream makeCopy() {
+  //   return AsyncSslStream(mStream.get_executor(), sslCtx);
+  // }
 };
 
 template <typename SockStream, typename ReqBody = http::empty_body,
@@ -338,6 +339,7 @@ private:
     Idle(std::weak_ptr<HttpSession> sess) : session(std::move(sess)) {}
     void resolve() {}
     void write() {
+      CLIENT_LOG_DEBUG("Idle write");
       auto sessionptr = session.lock();
       sessionptr->connectionState = InUse(session);
       sessionptr->stream->write(
@@ -345,6 +347,7 @@ private:
           std::bind_front(&HttpSession::on_write, sessionptr));
     }
     void read() {
+      CLIENT_LOG_DEBUG("Idle read");
       auto sessionptr = session.lock();
       sessionptr->connectionState = InUse(session);
       sessionptr->stream->read(
@@ -356,6 +359,7 @@ private:
     std::weak_ptr<HttpSession> session;
     Disconnected(std::weak_ptr<HttpSession> sess) : session(std::move(sess)) {}
     void resolve() {
+      CLIENT_LOG_DEBUG("Disconnected resolve");
       auto sessionptr = session.lock();
       sessionptr->connectionState = InUse(session);
       sessionptr->stream->resolve(
@@ -394,10 +398,10 @@ public:
   using ResponseBody = ResBody;
   using RequestBody = ReqBody;
   template <typename... Args>
-  HttpSession(net::any_io_executor ex, Args &&...args)
+  HttpSession(net::any_io_executor &ex, Args &&...args)
       : resolver_(ex),
         stream(std::make_shared<Stream>(ex, std::forward<Args>(args)...)) {}
-  HttpSession(net::any_io_executor ex, Stream &&strm)
+  HttpSession(net::any_io_executor &ex, Stream &&strm)
       : resolver_(ex), stream(std::make_shared<Stream>(std::move(strm))) {}
   ~HttpSession() { CLIENT_LOG_DEBUG("HttpSession destroyed"); }
   void setErrorHandler() {
@@ -412,7 +416,7 @@ public:
   }
   template <typename... Args>
   [[nodiscard]] static std::shared_ptr<HttpSession>
-  create(net::any_io_executor ex, Args &&...args) {
+  create(net::any_io_executor &ex, Args &&...args) {
     auto session =
         std::make_shared<HttpSession>(ex, std::forward<Args>(args)...);
     session->setErrorHandler();
@@ -420,7 +424,7 @@ public:
   }
 
   [[nodiscard]] static std::shared_ptr<HttpSession>
-  create(net::any_io_executor ex, Stream &&strm) {
+  create(net::any_io_executor &ex, Stream &&strm) {
     auto session = std::make_shared<HttpSession>(ex, std::move(strm));
     session->setErrorHandler();
     return session;

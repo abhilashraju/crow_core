@@ -5,8 +5,8 @@ using namespace reactor;
 namespace bmcweb {
 struct EventServiceManager {
   std::vector<reactor::HttpSubscriber> subscribers;
-  net::any_io_executor ioContext;
-  EventServiceManager(net::any_io_executor ioc) : ioContext(ioc) {
+  net::any_io_executor &ioContext;
+  EventServiceManager(net::any_io_executor &ioc) : ioContext(ioc) {
     addSubscription("https://9.3.84.101:8443/events");
   }
   ~EventServiceManager() {}
@@ -15,7 +15,7 @@ struct EventServiceManager {
   EventServiceManager(EventServiceManager &&) = delete;
   EventServiceManager &operator=(EventServiceManager &&) = delete;
 
-  static EventServiceManager &getInstance(net::any_io_executor ioc) {
+  static EventServiceManager &getInstance(net::any_io_executor &ioc) {
     static EventServiceManager instance(ioc);
     return instance;
   }

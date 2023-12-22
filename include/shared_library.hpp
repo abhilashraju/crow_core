@@ -27,7 +27,7 @@ struct SharedLibrary {
   void setPersist() { persist = true; }
   ~SharedLibrary() {
     if (handle && !persist) {
-      // dlclose(handle);
+      dlclose(handle);
     }
   }
 

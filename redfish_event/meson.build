@@ -5,28 +5,10 @@ redfish_event_sources = [
 ]
 
 
-REDFISH_EVENT_ARGS=['-DBOOST_URL_NO_SOURCE_LOCATION']
-openssl_dep = dependency('openssl', version: '>=1.1.1')
-boost_dep = dependency('boost',modules: ['coroutine','url'])
-
-json_dep = dependency('nlohmann_json')
-
 core_includes = include_directories(['../include','.',
 '../http','..',
 '../plugin-ifaces'])
 
-
-#nghttp2 = dependency('libnghttp2', version: '>=1.52.0', required : false)
-#if not nghttp2.found()
-#  cmake = import('cmake')
-#  opt_var = cmake.subproject_options()
-#  opt_var.add_cmake_defines({
-#    'ENABLE_LIB_ONLY': true,
-#    'ENABLE_STATIC_LIB': true
-#  })
-#  nghttp2_ex = cmake.subproject('nghttp2', options: opt_var)
-#  nghttp2 = nghttp2_ex.dependency('nghttp2')
-#endif
 
 redfish_event_dep = declare_dependency(
 	include_directories : [core_includes],
@@ -42,7 +24,7 @@ redfish_event = library('redfish_event',
     sources : redfish_event_sources,
     include_directories : core_includes,
     dependencies : [redfish_event_deps],
-    cpp_args : REDFISH_EVENT_ARGS,
+    cpp_args : CROW_ARGS,
     link_with : [])
     
 

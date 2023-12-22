@@ -29,8 +29,7 @@ if not nghttp2.found()
 endif
 crow_core_dependencies = nghttp2
 
-#boost_lib_path = boost_dep.get_pkgconfig_variable('libdir')
-boost_lib_path='/opt/homebrew/Cellar/boost/1.82.0/lib'
+
 core_includes = include_directories(['.','./include','./http','./utils','./redfish_event/http','./redfish_event'])
 if get_option('enable-tests')
   subdir('tests')
@@ -47,4 +46,4 @@ executable(
   include_directories: core_includes,
   dependencies:[boost_dep,json_dep,openssl_dep,crow_core_dependencies],
   install: true,
-  install_dir: get_option('bindir'),cpp_args : CROW_ARGS,link_args: ['-L' + boost_lib_path])
+  install_dir: get_option('bindir'),cpp_args : CROW_ARGS)
