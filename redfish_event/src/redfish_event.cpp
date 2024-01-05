@@ -17,7 +17,23 @@ class MyRouterPlugin : public RouterPlugin
     MyRouterPlugin() {}
     std::string registerRoutes(crow::App& app)
     {
-        sendTestEventLog(app, app.ioContext().get_executor());
+        BMCWEB_ROUTE(app, "/redfish/v1/MyRouterPlugin/")
+            // .privileges(redfish::privileges::getMyRouterPlugin)
+            .methods(boost::beast::http::verb::get)(
+                [this](const crow::Request& req,
+                       const std::shared_ptr<bmcweb::AsyncResp>& asyncResp) {
+                    asyncResp->res.jsonValue = {{"@odata.type",
+                                                 "#MyRouterPlugin.v1_0_0.MyRouterPlugin"},
+                                                {"@odata.id",
+                                                 "/redfish/v1/MyRouterPlugin"},
+                                                {"@odata.context",
+                                                 "/redfish/v1/$metadata#MyRouterPlugin.MyRouterPlugin"},
+                                                {"Id", "MyRouterPlugin"},
+                                                {"Name", "MyRouterPlugin"},
+                                                {"Description", "MyRouterPlugin"},
+                                                {"MyRouterPluginProperty", "MyRouterPluginProperty"}};
+                });
+        // sendTestEventLog(app);
         return "MyRouterPlugin";
     }
 
@@ -40,7 +56,7 @@ class MyRouterPlugin : public RouterPlugin
         }
         return RouterPlugin::getInterface(interfaceId);
     }
-    void sendTestEventLog(crow::App& app, net::any_io_executor executor)
+    void sendTestEventLog(crow::App& app)
     {
         nlohmann::json logEntryArray;
         logEntryArray.push_back({});
@@ -64,7 +80,7 @@ class MyRouterPlugin : public RouterPlugin
         std::string strMsg = msg.dump(2, ' ', true,
                                       nlohmann::json::error_handler_t::replace);
 
-        EventServiceManager::getInstance(executor).sendEvent(std::move(strMsg));
+        EventServiceManager::getInstance(app.ioContext().get_executor()).sendEvent(std::move(strMsg));
     }
     std::string getCurrentTime()
     {

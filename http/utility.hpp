@@ -28,9 +28,353 @@
 
 namespace crow
 {
-namespace utility
+    namespace black_magic
 {
 
+enum class TypeCode : uint8_t
+{
+    Unspecified = 0,
+    Integer = 1,
+    UnsignedInteger = 2,
+    Float = 3,
+    String = 4,
+    Path = 5,
+    Max = 6,
+};
+
+// Remove when we have c++23
+template <typename E>
+constexpr typename std::underlying_type<E>::type toUnderlying(E e) noexcept
+{
+    return static_cast<typename std::underlying_type<E>::type>(e);
+}
+
+template <typename T>
+constexpr TypeCode getParameterTag()
+{
+    if constexpr (std::is_same_v<int, T>)
+    {
+        return TypeCode::Integer;
+    }
+    if constexpr (std::is_same_v<char, T>)
+    {
+        return TypeCode::Integer;
+    }
+    if constexpr (std::is_same_v<short, T>)
+    {
+        return TypeCode::Integer;
+    }
+    if constexpr (std::is_same_v<long, T>)
+    {
+        return TypeCode::Integer;
+    }
+    if constexpr (std::is_same_v<long long, T>)
+    {
+        return TypeCode::Integer;
+    }
+    if constexpr (std::is_same_v<unsigned int, T>)
+    {
+        return TypeCode::UnsignedInteger;
+    }
+    if constexpr (std::is_same_v<unsigned char, T>)
+    {
+        return TypeCode::UnsignedInteger;
+    }
+    if constexpr (std::is_same_v<unsigned short, T>)
+    {
+        return TypeCode::UnsignedInteger;
+    }
+    if constexpr (std::is_same_v<unsigned long, T>)
+    {
+        return TypeCode::UnsignedInteger;
+    }
+    if constexpr (std::is_same_v<unsigned long long, T>)
+    {
+        return TypeCode::UnsignedInteger;
+    }
+    if constexpr (std::is_same_v<double, T>)
+    {
+        return TypeCode::Float;
+    }
+    if constexpr (std::is_same_v<std::string, T>)
+    {
+        return TypeCode::String;
+    }
+    return TypeCode::Unspecified;
+}
+
+template <typename... Args>
+struct computeParameterTagFromArgsList;
+
+template <>
+struct computeParameterTagFromArgsList<>
+{
+    static constexpr int value = 0;
+};
+
+template <typename Arg, typename... Args>
+struct computeParameterTagFromArgsList<Arg, Args...>
+{
+    static constexpr int subValue =
+        computeParameterTagFromArgsList<Args...>::value;
+    static constexpr int value =
+        getParameterTag<typename std::decay<Arg>::type>() !=
+                TypeCode::Unspecified
+            ? static_cast<unsigned long>(subValue *
+                                         toUnderlying(TypeCode::Max)) +
+                  static_cast<uint64_t>(
+                      getParameterTag<typename std::decay<Arg>::type>())
+            : subValue;
+};
+
+inline bool isParameterTagCompatible(uint64_t a, uint64_t b)
+{
+    while (true)
+    {
+        if (a == 0 && b == 0)
+        {
+            // Both tags were equivalent, parameters are compatible
+            return true;
+        }
+        if (a == 0 || b == 0)
+        {
+            // one of the tags had more parameters than the other
+            return false;
+        }
+        TypeCode sa = static_cast<TypeCode>(a % toUnderlying(TypeCode::Max));
+        TypeCode sb = static_cast<TypeCode>(b % toUnderlying(TypeCode::Max));
+
+        if (sa == TypeCode::Path)
+        {
+            sa = TypeCode::String;
+        }
+        if (sb == TypeCode::Path)
+        {
+            sb = TypeCode::String;
+        }
+        if (sa != sb)
+        {
+            return false;
+        }
+        a /= toUnderlying(TypeCode::Max);
+        b /= toUnderlying(TypeCode::Max);
+    }
+    return false;
+}
+
+constexpr inline uint64_t getParameterTag(std::string_view url)
+{
+    uint64_t tagValue = 0;
+    size_t urlSegmentIndex = std::string_view::npos;
+
+    size_t paramIndex = 0;
+
+    for (size_t urlIndex = 0; urlIndex < url.size(); urlIndex++)
+    {
+        char character = url[urlIndex];
+        if (character == '<')
+        {
+            if (urlSegmentIndex != std::string_view::npos)
+            {
+                return 0;
+            }
+            urlSegmentIndex = urlIndex;
+        }
+        if (character == '>')
+        {
+            if (urlSegmentIndex == std::string_view::npos)
+            {
+                return 0;
+            }
+            std::string_view tag = url.substr(urlSegmentIndex,
+                                              urlIndex + 1 - urlSegmentIndex);
+
+            // Note, this is a really lame way to do std::pow(6, paramIndex)
+            // std::pow doesn't work in constexpr in clang.
+            // Ideally in the future we'd move this to use a power of 2 packing
+            // (probably 8 instead of 6) so that these just become bit shifts
+            uint64_t insertIndex = 1;
+            for (size_t unused = 0; unused < paramIndex; unused++)
+            {
+                insertIndex *= 6;
+            }
+
+            if (tag == "<int>")
+            {
+                tagValue += insertIndex * toUnderlying(TypeCode::Integer);
+            }
+            if (tag == "<uint>")
+            {
+                tagValue += insertIndex *
+                            toUnderlying(TypeCode::UnsignedInteger);
+            }
+            if (tag == "<float>" || tag == "<double>")
+            {
+                tagValue += insertIndex * toUnderlying(TypeCode::Float);
+            }
+            if (tag == "<str>" || tag == "<string>")
+            {
+                tagValue += insertIndex * toUnderlying(TypeCode::String);
+            }
+            if (tag == "<path>")
+            {
+                tagValue += insertIndex * toUnderlying(TypeCode::Path);
+            }
+            paramIndex++;
+            urlSegmentIndex = std::string_view::npos;
+        }
+    }
+    if (urlSegmentIndex != std::string_view::npos)
+    {
+        return 0;
+    }
+    return tagValue;
+}
+
+template <typename... T>
+struct S
+{
+    template <typename U>
+    using push = S<U, T...>;
+    template <typename U>
+    using push_back = S<T..., U>;
+    template <template <typename... Args> class U>
+    using rebind = U<T...>;
+};
+
+template <typename F, typename Set>
+struct CallHelper;
+
+template <typename F, typename... Args>
+struct CallHelper<F, S<Args...>>
+{
+    template <typename F1, typename... Args1,
+              typename = decltype(std::declval<F1>()(std::declval<Args1>()...))>
+    static char test(int);
+
+    template <typename...>
+    static int test(...);
+
+    static constexpr bool value = sizeof(test<F, Args...>(0)) == sizeof(char);
+};
+
+template <uint64_t N>
+struct SingleTagToType
+{};
+
+template <>
+struct SingleTagToType<1>
+{
+    using type = int64_t;
+};
+
+template <>
+struct SingleTagToType<2>
+{
+    using type = uint64_t;
+};
+
+template <>
+struct SingleTagToType<3>
+{
+    using type = double;
+};
+
+template <>
+struct SingleTagToType<4>
+{
+    using type = std::string;
+};
+
+template <>
+struct SingleTagToType<5>
+{
+    using type = std::string;
+};
+
+template <uint64_t Tag>
+struct Arguments
+{
+    using subarguments = typename Arguments<Tag / 6>::type;
+    using type = typename subarguments::template push<
+        typename SingleTagToType<Tag % 6>::type>;
+};
+
+template <>
+struct Arguments<0>
+{
+    using type = S<>;
+};
+
+template <typename T>
+struct Promote
+{
+    using type = T;
+};
+
+template <typename T>
+using PromoteT = typename Promote<T>::type;
+
+template <>
+struct Promote<char>
+{
+    using type = int64_t;
+};
+template <>
+struct Promote<short>
+{
+    using type = int64_t;
+};
+template <>
+struct Promote<int>
+{
+    using type = int64_t;
+};
+template <>
+struct Promote<long>
+{
+    using type = int64_t;
+};
+template <>
+struct Promote<long long>
+{
+    using type = int64_t;
+};
+template <>
+struct Promote<unsigned char>
+{
+    using type = uint64_t;
+};
+template <>
+struct Promote<unsigned short>
+{
+    using type = uint64_t;
+};
+template <>
+struct Promote<unsigned int>
+{
+    using type = uint64_t;
+};
+template <>
+struct Promote<unsigned long>
+{
+    using type = uint64_t;
+};
+template <>
+struct Promote<unsigned long long>
+{
+    using type = uint64_t;
+};
+
+}
+namespace utility
+{
+template <typename T>
+struct FunctionTraits
+{
+    template <size_t i>
+    using arg = std::tuple_element_t<i, boost::callable_traits::args_t<T>>;
+};
 enum class TypeCode : uint8_t
 {
     Unspecified = 0,

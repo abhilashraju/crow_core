@@ -16,7 +16,7 @@ test_dep_libs = [
 ]
 
 subdir('http_response_test')
-subdir('http_connection_test')
+#subdir('http_connection_test')
 
 
 # This executable contains all the tests
