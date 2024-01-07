@@ -19,7 +19,7 @@ class MyRouterPlugin : public RouterPlugin
     {
         BMCWEB_ROUTE(app, "/redfish/v1/MyRouterPlugin/")
             // .privileges(redfish::privileges::getMyRouterPlugin)
-            .methods(boost::beast::http::verb::get)(
+            .methods(boost::beast::http::verb::post)(
                 [this](const crow::Request& req,
                        const std::shared_ptr<bmcweb::AsyncResp>& asyncResp) {
                     asyncResp->res.jsonValue = {{"@odata.type",

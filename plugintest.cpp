@@ -14,7 +14,7 @@ int main() {
     std::shared_ptr<boost::asio::io_context> io = getIoContext();
     boost::asio::any_io_executor executor = io->get_executor();
     crow::App app(io);
-    bmcweb::PluginDb db("/tmp");
+    bmcweb::PluginDb db("/Users/abhilashraju/work/cpp/crow_core/build/redfish_event");
     auto interfaces = db.getInterFaces<bmcweb::RouterPlugin>();
     for (auto &plugin : interfaces) {
       BMCWEB_LOG_INFO("Registering plugin ");
@@ -30,6 +30,7 @@ int main() {
       app.handle(cReq,resp);
       BMCWEB_LOG_INFO("{}", resp->res.jsonValue.dump(2));
      });
+    app.run();
     io->run();
   } catch (const std::exception &e) {
     std::cerr << e.what() << '\n';
