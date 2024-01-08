@@ -191,10 +191,10 @@ class Connection :
                                  selectedProtocol, alpnlen);
                 if (selectedProtocol == "h2")
                 {
-                    auto http2 =
-                        std::make_shared<HTTP2Connection<Adaptor, Handler>>(
-                            std::move(adaptor), handler, getCachedDateStr);
-                    http2->start();
+                    // auto http2 =
+                    //     std::make_shared<HTTP2Connection<Adaptor, Handler>>(
+                    //         std::move(adaptor), handler, getCachedDateStr);
+                    // http2->start();
                     return;
                 }
             }

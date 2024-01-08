@@ -2,7 +2,7 @@
 #include "http_request.hpp"
 namespace crow{
   namespace authentication{
-    void cleanupTempSession(const Request& req)
+    inline void cleanupTempSession(const Request& req)
     {
 
     }

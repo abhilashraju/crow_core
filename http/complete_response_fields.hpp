@@ -37,7 +37,7 @@ inline void completeResponseFields(const Request& req, Response& res)
 
         if (prefered == ContentType::HTML)
         {
-            json_html_util::prettyPrintJson(res);
+            // json_html_util::prettyPrintJson(res);
         }
         else if (prefered == ContentType::CBOR)
         {
