@@ -6,7 +6,7 @@ option('example',
 
 option('enable-tests',
   type : 'boolean',
-  value : true,
+  value : false,
   description : 'Enables tests.'
 )
 

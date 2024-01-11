@@ -14,7 +14,10 @@ endif
 redfish_event_sources = [
     'src/redfish_event.cpp',
     'src/json_utils.cpp',
-    'src/error_messages.cpp'
+    'src/error_messages.cpp',
+    '../boost_asio_ssl.cpp',
+    '../boost_asio.cpp',
+    '../boost_beast.cpp'
 ]
 
 

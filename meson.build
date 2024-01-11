@@ -7,13 +7,39 @@ project(
     'warning_level=3',
     'cpp_std=c++20',
   ])
-
+cxx = meson.get_compiler('cpp')
 CROW_ARGS=['-DBMCWEB_ENABLE_SSL','-DBMCWEB_INSECURE_DISABLE_AUTHX','-DBOOST_URL_NO_SOURCE_LOCATION','-DBMCWEB_INSECURE_DISABLE_AUTHX']
 #CHAI_ARGS=[]
 openssl_dep = dependency('openssl', version: '>=1.1.1')
-boost_dep = dependency('boost',modules: ['coroutine','url'])
 json_dep = dependency('nlohmann_json')
 gtest = subproject('gtest')
+add_project_arguments(
+cxx.get_supported_arguments([
+  '-DBOOST_ASIO_DISABLE_CONCEPTS',
+  '-DBOOST_ALL_NO_LIB',
+  '-DBOOST_ALLOW_DEPRECATED_HEADERS',
+  #'-DBOOST_ASIO_DISABLE_THREADS',
+  #'-DBOOST_ASIO_NO_DEPRECATED',
+  '-DBOOST_ASIO_SEPARATE_COMPILATION',
+  '-DBOOST_BEAST_SEPARATE_COMPILATION',
+  '-DBOOST_EXCEPTION_DISABLE',
+  '-DBOOST_NO_EXCEPTIONS',
+  '-DBOOST_URL_NO_SOURCE_LOCATION',
+  '-DJSON_NOEXCEPTION',
+  '-DOPENSSL_NO_FILENAMES',
+  '-DSDBUSPLUS_DISABLE_BOOST_COROUTINES',
+]),
+language : 'cpp')
+
+boost_dep = dependency(
+  'boost',
+  modules: [
+    'url',
+    ],
+  #version : '>=1.83.0',
+  required : true,
+  include_type: 'system'
+)
 
 #benchmark = subproject('benchmark')
 nghttp2 = dependency('libnghttp2', version: '>=1.52.0', required : false)
@@ -41,6 +67,9 @@ executable(
   'crow_core',
   [
     'plugintest.cpp',
+    'boost_asio_ssl.cpp',
+    'boost_asio.cpp',
+    'boost_beast.cpp'
   #'reactortest.cpp'
   ],
   include_directories: core_includes,
